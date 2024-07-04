@@ -1,0 +1,8 @@
+*.log
+.vscode/
+vendor/
+bin/
+build/
+assets/
+src/imgui/
+include/imgui/
