@@ -5,7 +5,7 @@ std::unique_ptr<PacketQueue> VideoPlayer::s_VideoPacketQueue =
     std::make_unique<PacketQueue>();
 
 VideoPlayer::VideoPlayer(SampleRate t_sample_rate)
-    : m_video_state(new VideoState()), m_hw_device_ctx(nullptr) {
+    : m_video_state(std::make_shared<VideoState>()), m_hw_device_ctx(nullptr) {
   m_audio_state->sample_rate = t_sample_rate;
   SDL_RegisterEvents(6);
 }
@@ -17,11 +17,6 @@ VideoPlayer::~VideoPlayer() {
     free_sdl_mixer();
 
     av_freep(&m_video_state->buffer);
-
-    if (m_video_state) {
-      delete m_video_state;
-      m_video_state = nullptr;
-    }
   }
 }
 #pragma region Stream Setup
@@ -317,10 +312,10 @@ int VideoPlayer::play_video(AVRational* timebase) {
 
   // Start the decoding and video threads.
   m_video_tid =
-      SDL_CreateThread(&video_callback, "Video Thread", m_video_state);
+      SDL_CreateThread(&video_callback, "Video Thread", m_video_state.get());
 
   m_decoding_tid =
-      SDL_CreateThread(&enqueue_frames, "Decoding Thread", m_video_state);
+      SDL_CreateThread(&enqueue_frames, "Decoding Thread", m_video_state.get());
 
   return 0;
 }
@@ -691,7 +686,6 @@ void VideoPlayer::pause_video() {
 #pragma region Waveform Loader
 
 int VideoPlayer::load_audio_waveform() {
-  
 
   return -1;
 }

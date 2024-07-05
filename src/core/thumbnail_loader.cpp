@@ -45,9 +45,9 @@ std::vector<int> ThumbnailLoader::extract_histogram(AVFrame* frame,
                                                     int num_bins) {
   std::vector<int> histogram(num_bins, 0);
 
-  constexpr int DOWNSAMPLING_STRIDE = 256;
-  for (int y = 0; y < frame->height; y += DOWNSAMPLING_STRIDE) {
-    for (int x = 0; x < frame->width; x += DOWNSAMPLING_STRIDE) {
+  constexpr int DOWNSAMPLE_FACTOR = 256;
+  for (int y = 0; y < frame->height; y += DOWNSAMPLE_FACTOR) {
+    for (int x = 0; x < frame->width; x += DOWNSAMPLE_FACTOR) {
       int pixel_intensity = frame->data[0][y * frame->linesize[0] + x];
       histogram[pixel_intensity]++;
     }
@@ -69,11 +69,9 @@ int ThumbnailLoader::compare_previous_histogram(
   const double RMSE =
       std::sqrt(accumulated_squared_diff / new_histogram.size());
 
-  const double NRMSD = RMSE / new_histogram.size();
+  constexpr double THRESHOLD = 10.0;
 
-  constexpr double THRESHOLD = 20.0;
-
-  if (NRMSD < (THRESHOLD / new_histogram.size())) {
+  if (RMSE < THRESHOLD) {
     return NEW_HISTOGRAM_BETTER;
   }
 

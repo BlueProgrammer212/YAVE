@@ -75,7 +75,7 @@ class Timeline {
    * @param[in] mouse_pos A pointer to the requested timestamp.
    * @return 1 for success, 0 for error. 
    */
-  int request_seek_frame(float* mouse_pos);
+  int request_seek_frame(std::unique_ptr<float> mouse_pos);
 
   /**
    * @brief Handles the ruler events 
@@ -101,7 +101,7 @@ class Timeline {
   void render_timestamp();
   void render_ruler(const ImVec2& timestamp_max);
   void render_playhead();
-  void render_waveform();
+  void render_waveform(const ImVec2& segment_min, const ImVec2& segment_max);
 
   ImVec2 m_window_size;
   ImVec2 m_child_window_size;

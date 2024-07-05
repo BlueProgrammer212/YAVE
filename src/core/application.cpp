@@ -160,7 +160,7 @@ void Application::update() {
 }
 
 void Application::update_texture() {
-  const VideoState* video_state = m_video_processor->get_videostate();
+  auto video_state = m_video_processor->get_videostate();
   m_video_size.width = video_state->dimensions.x;
   m_video_size.height = video_state->dimensions.y;
 
@@ -188,7 +188,7 @@ void Application::preview_video(const char* filename) {
     return;
   };
 
-  auto* video_state = m_video_processor->get_videostate();
+  auto video_state = m_video_processor->get_videostate();
 
   m_video_size.width = video_state->dimensions.x;
   m_video_size.height = video_state->dimensions.y;

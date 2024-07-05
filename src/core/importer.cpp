@@ -84,20 +84,21 @@ void Importer::init() {
 
 void Importer::update() {}
 
-void Importer::truncate_filename(float max_width, std::string* filename) {
-  float text_width = ImGui::CalcTextSize(filename->c_str()).x;
+std::optional<std::string> Importer::truncate_filename(
+    float max_width, const std::string& filename) {
+  float text_width = ImGui::CalcTextSize(filename.c_str()).x;
 
   if (text_width <= max_width) {
-    return;
+    return std::nullopt;
   }
 
   int left = 0;
-  int right = static_cast<int>(filename->size());
+  int right = static_cast<int>(filename.size());
 
   while (left < right) {
     const int middle = (left + right) / 2;
 
-    std::string trimmed_str = filename->substr(0, middle);
+    std::string trimmed_str = filename.substr(0, middle);
     text_width = ImGui::CalcTextSize(trimmed_str.c_str()).x;
 
     if (text_width > max_width) {
@@ -107,7 +108,7 @@ void Importer::truncate_filename(float max_width, std::string* filename) {
     }
   }
 
-  *filename = filename->substr(0, right - 1);
+  return filename.substr(0, right - 1);
 }
 
 void Importer::handle_zooming(float dt) {
@@ -156,7 +157,7 @@ ImVec2 Importer::maintain_thumbnail_aspect_ratio(ImVec2* thumbnail_min,
 }
 
 void Importer::handle_video_loading_events(const ImVec2& min, const ImVec2& max,
-                                           std::string* filename,
+                                           const std::string& filename,
                                            const int index) {
   if (!ImGui::IsMouseHoveringRect(min, max)) {
     return;
@@ -193,7 +194,7 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
 
   ImVec2 max = min + thumbnail_size;
 
-  handle_video_loading_events(min, max, &filename, index);
+  handle_video_loading_events(min, max, filename, index);
 
   // Draw the button
   m_window_data->draw_list->AddRectFilled(min, max, Color::VID_FILE_BTN_COLOR,
@@ -213,14 +214,17 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
     draw_list->AddRectFilled(min, max, IM_COL32(0, 182, 227, 100), 0.5f);
   }
 
-  std::string filename_cpy = filename;
-  truncate_filename(thumbnail_size.x, &filename_cpy);
+  const std::optional<std::string>& truncated_filename =
+      truncate_filename(thumbnail_size.x, filename);
 
-  float text_width = ImGui::CalcTextSize(filename.c_str()).x;
-  ImVec2 text_pos = ImVec2(min.x + (thumbnail_size.x - text_width) / 2,
-                           max.y + THUMBNAIL_VIDEO_TITLE_TOP_PADDING);
+  if (truncated_filename.has_value()) {
+    float text_width = ImGui::CalcTextSize(filename.c_str()).x;
+    ImVec2 text_pos = ImVec2(min.x + (thumbnail_size.x - text_width) / 2,
+                             max.y + THUMBNAIL_VIDEO_TITLE_TOP_PADDING);
 
-  draw_list->AddText(text_pos, IM_COL32_WHITE, filename_cpy.c_str());
+    draw_list->AddText(text_pos, IM_COL32_WHITE,
+                       truncated_filename.value().c_str());
+  }
 }
 
 void Importer::refresh_thumbnail_textures(const Thumbnail thumbnail,
@@ -310,10 +314,12 @@ int Importer::load_thumbnail_callback(void* userdata) {
   return 0;
 }
 
-void Importer::request_video_preview(std::string* video_filename) {
+void Importer::request_video_preview(const std::string& video_filename) {
   SDL_Event load_video_event;
   load_video_event.type = CustomVideoEvents::FF_LOAD_NEW_VIDEO_EVENT;
-  load_video_event.user.data1 = reinterpret_cast<void*>(video_filename);
+
+  auto url_ptr = new std::string(video_filename);
+  load_video_event.user.data1 = reinterpret_cast<void*>(url_ptr);
 
   SDL_PushEvent(&load_video_event);
 }
@@ -324,18 +330,18 @@ void Importer::send_thumbnail_to_main_thread(
     return;
   }
 
-  int* file_index_ptr = new int(file_index);
+  auto file_index_uptr = std::make_unique<int>(file_index);
 
   SDL_Event event;
   event.type = CustomVideoEvents::FF_REFRESH_THUMBNAIL;
   event.user.data1 = thumbnail.value();
-  event.user.data2 = file_index_ptr;
+  event.user.data2 = file_index_uptr.release();
 
   SDL_PushEvent(&event);
 }
 
 void Importer::request_load_thumbnail(ImporterUserData* data,
-                                      std::string video_filename,
+                                      const std::string& video_filename,
                                       int file_index) {
   const std::string url = data->current_directory + video_filename;
   auto thumbnail = s_ThumbnailLoader->load_video_thumbnail(url);

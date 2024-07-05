@@ -58,7 +58,7 @@ void Timeline::update_timestamp() {
 }
 
 void Timeline::update(float delta_time) {
-  static const float track_proportion = 0.15f;
+  static const float track_proportion = 0.2f;
   m_track_style.size.y = track_proportion * m_window_size.y;
 
   m_playhead_prop.current_time =
@@ -122,7 +122,6 @@ void Timeline::render() {
   render_timestamp();
   render_tracks();
   render_segments();
-  render_waveform();
   render_playhead();
 
   m_draw_list->ChannelsMerge();
@@ -148,6 +147,7 @@ void Timeline::add_segment(const Segment& segment) {
 
 void Timeline::render_segments() {
   static const auto outline_color = IM_COL32(1, 43, 81, 255);
+  ImVec2 initial_cursor_pos = ImGui::GetCursorScreenPos();
 
   m_draw_list->ChannelsSetCurrent(TimelineLayers::SEGMENT_LAYER);
 
@@ -165,6 +165,11 @@ void Timeline::render_segments() {
     max.x += segment_width;
     max.y += m_track_style.size.y;
 
+    // Render a separator between the clip and the audio waveform.
+    const auto& start_point =
+        ImVec2(min.x, min.y + (m_track_style.size.y / 2.0f));
+    const auto& end_point = ImVec2(max.x, start_point.y);
+
     m_draw_list->AddRectFilled(min, max, m_segment_style.color,
                                m_segment_style.border_radius);
 
@@ -178,12 +183,8 @@ void Timeline::render_segments() {
     min += m_segment_style.label_margin;
     m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
 
-    // Render a separator between the clip and the audio waveform.
-    static const ImVec2 separator_offset = ImVec2(2.5f, 25.0f);
-
-    const auto& start_point =
-        ImVec2(min.x - separator_offset.x, max.y - separator_offset.y);
-    const auto& end_point = ImVec2(max.x, start_point.y);
+    render_waveform(start_point, max);
+    ImGui::SetCursorScreenPos(initial_cursor_pos);
 
     m_draw_list->AddLine(start_point, end_point, outline_color, 1.25f);
   }
@@ -262,19 +263,69 @@ void Timeline::render_timestamp() {
 
 #pragma region Waveform
 
-void Timeline::render_waveform() {
+void Timeline::render_waveform(const ImVec2& segment_min,
+                               const ImVec2& segment_max) {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::WAVEFORM_LAYER);
 
+  static auto audio_stream = video_processor->s_StreamList.at("Audio");
+
+  // Render waveform test using ImPlot
+  constexpr int NUMBER_OF_SAMPLES = 200;
+  static std::array<double, NUMBER_OF_SAMPLES> x_samples;
+  static std::array<double, NUMBER_OF_SAMPLES> y_samples;
+
+  for (int i = 0; i < NUMBER_OF_SAMPLES; ++i) {
+    x_samples[i] = i * 0.01;
+    y_samples[i] = 1.0 + 0.5 * sin(10 * x_samples[i]) * cos(2 * x_samples[i]);
+  }
+
+  constexpr ImPlotFlags flags = ImPlotFlags_CanvasOnly;
+
+  constexpr ImPlotAxisFlags axis_flags =
+      ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_NoGridLines |
+      ImPlotAxisFlags_NoTickMarks | ImPlotAxisFlags_NoTickLabels |
+      ImPlotAxisFlags_NoLabel;
+
+  static std::vector<ImPlotStyleVar_> style_var_set = {
+      ImPlotStyleVar_PlotPadding, ImPlotStyleVar_LabelPadding,
+      ImPlotStyleVar_LegendPadding, ImPlotStyleVar_FitPadding};
+
+  for (const auto& var : style_var_set) {
+    ImPlot::PushStyleVar(var, ImVec2(0, 0));
+  }
+
+  ImPlot::PushStyleColor(ImPlotCol_FrameBg, Color::TRANSPARENT);
+  ImPlot::PushStyleColor(ImPlotCol_PlotBg, Color::TRANSPARENT);
+  ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+  ImGui::SetCursorScreenPos(segment_min);
+
+  ImVec2 plot_size = segment_max - segment_min;
+
+  if (ImPlot::BeginPlot("##WaveformPlot", plot_size, flags)) {
+    ImPlot::SetupAxis(ImAxis_X1, NULL, axis_flags);
+    ImPlot::SetupAxis(ImAxis_Y1, NULL, axis_flags);
+
+    ImPlot::SetupAxisLimits(ImAxis_X1, 0, 1.0f, ImPlotCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1.0f, ImPlotCond_Always);
+
+    ImPlot::PlotStems("Stems 1", x_samples.data(), y_samples.data(),
+                      NUMBER_OF_SAMPLES);
+    ImPlot::EndPlot();
+  }
+
+  ImPlot::PopStyleVar(style_var_set.size());
+  ImPlot::PopStyleColor(3);
 }
 
 #pragma endregion Waveform
 
 #pragma region Timeline Ruler
 
-int Timeline::request_seek_frame(float* mouse_pos) {
+int Timeline::request_seek_frame(std::unique_ptr<float> mouse_pos) {
   SDL_Event seek_event;
   seek_event.type = CustomVideoEvents::FF_SEEK_TO_TIMESTAMP_EVENT;
-  seek_event.user.data1 = reinterpret_cast<void*>(mouse_pos);
+  seek_event.user.data1 = reinterpret_cast<void*>(mouse_pos.release());
 
   return SDL_PushEvent(&seek_event) == 1;
 }
@@ -290,9 +341,8 @@ int Timeline::handle_ruler_events(const ImVec2& ruler_min) {
   const float mouse_delta =
       (ImGui::GetMousePos().x - ruler_min.x) / m_segment_style.scale;
 
-  auto* mouse_pos = new float(mouse_delta);
-
-  return request_seek_frame(mouse_pos);
+  auto mouse_pos = std::make_unique<float>(mouse_delta);
+  return request_seek_frame(std::move(mouse_pos));
 }
 
 void Timeline::render_ruler(const ImVec2& timestamp_max) {
@@ -358,8 +408,11 @@ int Timeline::handle_playhead_events(const ImVec2& min, const ImVec2& max) {
   }
 
   float mouse_delta = ImGui::GetMousePos().x - min.x;
-  float* final_mouse_pos = new float(mouse_delta / m_segment_style.scale);
-  return request_seek_frame(final_mouse_pos);
+
+  auto final_mouse_pos =
+      std::make_unique<float>(mouse_delta / m_segment_style.scale);
+
+  return request_seek_frame(std::move(final_mouse_pos));
 }
 
 void Timeline::render_playhead() {

@@ -236,7 +236,7 @@ class VideoPlayer : public AudioPlayer {
    * @brief Get the video state object.
    * @return VideoState& 
    */
-  [[nodiscard]] inline VideoState* get_videostate() noexcept {
+  [[nodiscard]] inline std::shared_ptr<VideoState> get_videostate() noexcept {
     return m_video_state;
   }
 
@@ -274,7 +274,7 @@ class VideoPlayer : public AudioPlayer {
   static std::unique_ptr<PacketQueue> s_VideoPacketQueue;
 
  protected:
-  VideoState* m_video_state;
+  std::shared_ptr<VideoState> m_video_state;
 
   std::int64_t m_duration;
 

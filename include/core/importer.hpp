@@ -68,16 +68,20 @@ class Importer {
 
   [[nodiscard]] static int is_extension_compatible(std::string filename);
 
-  static void truncate_filename(float max_width, std::string* filename);
+  [[nodiscard]] static std::optional<std::string> truncate_filename(float max_width, const std::string& filename);
 
   void handle_video_loading_events(const ImVec2& min, const ImVec2& max,
-                                   std::string* filename, const int index);
+                                   const std::string& filename,
+                                   const int index);
 
-  void request_video_preview(std::string* video_filename);
+  void request_video_preview(const std::string& video_filename);
 
-  static void request_load_thumbnail(ImporterUserData* data, std::string video_filename, int file_index);
+  static void request_load_thumbnail(ImporterUserData* data,
+                                     const std::string& video_filename,
+                                     int file_index);
 
-  static void send_thumbnail_to_main_thread(std::optional<Thumbnail*> thumbnail, int file_index);
+  static void send_thumbnail_to_main_thread(std::optional<Thumbnail*> thumbnail,
+                                            int file_index);
 
   void refresh_thumbnail_textures(const Thumbnail thumbnail, int file_index);
 

@@ -351,7 +351,7 @@ class AudioPlayer {
   static double s_AudioInternalClock;
 
   std::unique_ptr<AudioDeviceInfo> m_device_info;
-  AudioState* m_audio_state;
+  std::shared_ptr<AudioState> m_audio_state;
 
  private:
   static SwrContext* s_Resampler_Context;

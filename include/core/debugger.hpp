@@ -22,7 +22,7 @@ class Debugger {
     return (sample_rate * sample_bytes) / 1000;
   };
 
-  VideoState* video_state;
+  std::shared_ptr<VideoState> video_state;
   double time_base;
 
  private:

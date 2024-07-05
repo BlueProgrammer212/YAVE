@@ -25,7 +25,7 @@ std::unique_ptr<PacketQueue> AudioPlayer::s_AudioPacketQueue =
     std::make_unique<PacketQueue>();
 
 AudioPlayer::AudioPlayer()
-    : m_audio_state(new AudioState()),
+    : m_audio_state(std::make_shared<AudioState>()),
       m_device_info(std::make_unique<AudioDeviceInfo>()) {}
 
 #pragma region Init Functions
@@ -79,6 +79,8 @@ int AudioPlayer::init_sdl_mixer(int num_channels, int nb_samples) {
   m_audio_state->flags &= ~AudioFlags::IS_INPUT_CHANGED;
   m_audio_state->flags |= AudioFlags::IS_AUDIO_THREAD_ACTIVE;
 
+  SDL_memset(&wanted_spec, 0, sizeof(wanted_spec));
+
   wanted_spec.freq = stream_info->av_codec_ctx->sample_rate;
   wanted_spec.format = AUDIO_F32;
   wanted_spec.channels = num_channels;
@@ -95,7 +97,7 @@ int AudioPlayer::init_sdl_mixer(int num_channels, int nb_samples) {
   wanted_spec.callback = &audio_callback;
 
   m_audio_state->av_codec_ctx = stream_info->av_codec_ctx;
-  wanted_spec.userdata = m_audio_state;
+  wanted_spec.userdata = m_audio_state.get();
 
   device_id = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec,
                                   SDL_AUDIO_ALLOW_FORMAT_CHANGE);
