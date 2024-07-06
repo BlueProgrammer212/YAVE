@@ -12,8 +12,8 @@
 #include <implot.h>
 #include <implot_internal.h>
 
-#include "core/audio_player.hpp"
-#include "core/video_player.hpp"
+#include "core/backend/audio_player.hpp"
+#include "core/backend/video_player.hpp"
 
 #include <SDL_image.h>
 

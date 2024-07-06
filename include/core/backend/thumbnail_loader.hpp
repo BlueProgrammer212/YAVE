@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/video_player.hpp"
+#include "core/backend/video_player.hpp"
 
 namespace YAVE {
 struct StreamInfo;

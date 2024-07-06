@@ -178,6 +178,8 @@ void Application::update_texture() {
 #pragma region Video Player
 
 void Application::preview_video(const char* filename) {
+  static float accumulated_duration = 0.0f;
+
   if (m_video_processor->open_video(filename) != 0) {
     std::cout << "Failed to open the video.\n";
     return;
@@ -221,7 +223,9 @@ void Application::preview_video(const char* filename) {
 
   if (current_filename.has_value()) {
     m_tools->timeline->add_segment(
-        Segment{1, current_filename.value(), 0.0f, duration_in_seconds});
+        Segment{1, current_filename.value(), accumulated_duration,
+                accumulated_duration + duration_in_seconds});
+    accumulated_duration += duration_in_seconds;
   }
 }
 

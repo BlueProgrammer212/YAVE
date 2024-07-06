@@ -5,7 +5,7 @@
 #include "application.hpp"
 #include "color.hpp"
 
-#include "core/thumbnail_loader.hpp"
+#include "core/backend/thumbnail_loader.hpp"
 
 namespace YAVE {
 struct VideoFile;

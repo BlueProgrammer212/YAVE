@@ -43,7 +43,7 @@ constexpr double AUDIO_DIFF_AVG_NB = 20.0;
 constexpr double SYNC_THRESHOLD = 0.045;
 constexpr double NOSYNC_THRESHOLD = 1.0;
 
-constexpr double AUDIO_DIFF_AVG_COEF = 0.95;
+constexpr double AUDIO_DIFF_AVG_COEF = 0.99;
 
 /**
  * @typedef SampleRate
@@ -161,8 +161,6 @@ struct AudioBufferInfo {
   int buffer_size = 0;
   int sample_rate = 44100;
   int buffer_index = 0;
-
-  // This is specifically used to render the audio waveform.
   std::vector<float> audio_data;
 };
 

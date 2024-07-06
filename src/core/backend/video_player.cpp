@@ -1,4 +1,4 @@
-#include "core/video_player.hpp"
+#include "core/backend/video_player.hpp"
 
 namespace YAVE {
 std::unique_ptr<PacketQueue> VideoPlayer::s_VideoPacketQueue =
@@ -768,6 +768,12 @@ void VideoPlayer::reset_video_state() {
   m_video_state->pts = 0.0;
   m_video_state->last_delay = 40e-3;
   m_video_state->last_pts = 0.0;
+
+  // Reset audio buffer information
+  s_AudioBufferInfo->buffer_index = 0;
+  s_AudioBufferInfo->buffer_size = 0;
+  s_AudioBufferInfo->channel_nb = 2;
+  s_AudioBufferInfo->sample_rate = 44100;
 
   // Reset the dimensions of the video.
   m_video_state->dimensions = VideoDimension(640, 360);

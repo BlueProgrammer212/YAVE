@@ -2,7 +2,7 @@
 
 #include <deque>
 
-#include "core/video_player.hpp"
+#include "core/backend/video_player.hpp"
 
 namespace YAVE {
 constexpr std::size_t MAX_PACKETS_NB = 32;
