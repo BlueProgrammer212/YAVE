@@ -417,7 +417,7 @@ unsigned int VideoPlayer::update_framebuffer(Uint32 interval, void* user_data) {
 double VideoPlayer::calculateReferenceClock() {
   double ref_clock = s_AudioInternalClock;
 
-  const auto& [channel_nb, buffer_size, sample_rate, buffer_index] =
+  const auto& [channel_nb, buffer_size, sample_rate, buffer_index, audio_data] =
       *s_AudioBufferInfo;
 
   int hw_buf_size = buffer_size - buffer_index;
@@ -595,6 +595,10 @@ int VideoPlayer::enqueue_frames(void* data) {
     }
 
     const int& response = av_read_frame(av_format_ctx, s_LatestPacket);
+
+    if (response == AVERROR_EOF) {
+      continue;
+    }
 
     if (response < 0) {
       std::cerr << "Failed to decode the frames: "

@@ -168,6 +168,12 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream,
     s_AudioBufferInfo->sample_rate = s_LatestFrame->sample_rate;
     s_AudioBufferInfo->buffer_index = 0;
 
+    constexpr static int DOWNSAMPLE_FACTOR = 1024;
+
+    for (int i = 0; i < num_samples; i += DOWNSAMPLE_FACTOR) {
+      s_AudioBufferInfo->audio_data.push_back(*s_LatestFrame->data[0]);
+    }
+
     std::memcpy(sdl_stream, s_LatestFrame->data[0], buffer_size);
     len = 0;
 
@@ -205,6 +211,12 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream,
   s_AudioBufferInfo->buffer_size = buffer_size;
   s_AudioBufferInfo->sample_rate = s_LatestFrame->sample_rate;
   s_AudioBufferInfo->buffer_index = 0;
+
+  constexpr static int DOWNSAMPLE_FACTOR = 1024;
+
+  for (int i = 0; i < resampled_audio_buffer.size(); i += DOWNSAMPLE_FACTOR) {
+    s_AudioBufferInfo->audio_data.push_back(resampled_audio_buffer[i]);
+  }
 
   std::memcpy(sdl_stream, resampled_audio_buffer.data(), buffer_size);
   len = 0;

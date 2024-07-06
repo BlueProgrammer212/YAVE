@@ -1,11 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <cmath>
 
 #include "application.hpp"
 #include "color.hpp"
@@ -102,6 +102,16 @@ class Timeline {
   void render_ruler(const ImVec2& timestamp_max);
   void render_playhead();
   void render_waveform(const ImVec2& segment_min, const ImVec2& segment_max);
+
+  /**
+   * @brief This is used to adjust the size of every sample, depending on the
+   *        highest volume.
+   * @param audio_data A collection of audio samples.
+   * @param[out] out A pointer to where the normalized audio sample should go.
+   * @return int 
+   */
+  int normalize_audio_data(const std::vector<float>& audio_data,
+                           std::vector<float>* out);
 
   ImVec2 m_window_size;
   ImVec2 m_child_window_size;

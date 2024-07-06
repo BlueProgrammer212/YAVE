@@ -161,6 +161,9 @@ struct AudioBufferInfo {
   int buffer_size = 0;
   int sample_rate = 44100;
   int buffer_index = 0;
+
+  // This is specifically used to render the audio waveform.
+  std::vector<float> audio_data;
 };
 
 /**

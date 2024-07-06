@@ -173,12 +173,6 @@ void Timeline::render_segments() {
     m_draw_list->AddRectFilled(min, max, m_segment_style.color,
                                m_segment_style.border_radius);
 
-    for (float stroke_width = 0.1f; stroke_width < 1.5f; stroke_width += 0.1f) {
-      m_draw_list->AddRect(ImVec2(min.x - stroke_width, min.y - stroke_width),
-                           ImVec2(max.x + stroke_width, max.y + stroke_width),
-                           outline_color, m_segment_style.border_radius);
-    }
-
     // Render the segment label.
     min += m_segment_style.label_margin;
     m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
@@ -262,23 +256,48 @@ void Timeline::render_timestamp() {
 #pragma endregion Timestamp
 
 #pragma region Waveform
+int Timeline::normalize_audio_data(const std::vector<float>& audio_data,
+                                   std::vector<float>* out) {
+  if (out == nullptr || out->empty()) {
+    return -1;
+  }
+
+  static float highest_volume = std::numeric_limits<float>::min();
+
+  for (size_t i = 0; i < out->size(); ++i) {
+    if (audio_data[i] > highest_volume) {
+      highest_volume = audio_data[i];
+    }
+
+    if (highest_volume <= 0) {
+      return -1;
+    }
+
+    (*out)[i] = audio_data[i] / highest_volume;
+  }
+
+  return 0;
+}
 
 void Timeline::render_waveform(const ImVec2& segment_min,
                                const ImVec2& segment_max) {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::WAVEFORM_LAYER);
 
-  static auto audio_stream = video_processor->s_StreamList.at("Audio");
-
-  // Render waveform test using ImPlot
-  constexpr int NUMBER_OF_SAMPLES = 200;
-  static std::array<double, NUMBER_OF_SAMPLES> x_samples;
-  static std::array<double, NUMBER_OF_SAMPLES> y_samples;
-
-  for (int i = 0; i < NUMBER_OF_SAMPLES; ++i) {
-    x_samples[i] = i * 0.01;
-    y_samples[i] = 1.0 + 0.5 * sin(10 * x_samples[i]) * cos(2 * x_samples[i]);
+  // Ensure the audio stream is valid
+  if (video_processor->s_StreamList.find("Audio") ==
+      video_processor->s_StreamList.end()) {
+    return;  // No audio stream found
   }
 
+  static auto audio_stream = video_processor->s_StreamList.at("Audio");
+
+  // Ensure the audio buffer info and data are valid
+  if (AudioPlayer::s_AudioBufferInfo == nullptr ||
+      AudioPlayer::s_AudioBufferInfo->audio_data.empty()) {
+    return;  // No audio data to render
+  }
+
+  // Render waveform using ImPlot
   constexpr ImPlotFlags flags = ImPlotFlags_CanvasOnly;
 
   constexpr ImPlotAxisFlags axis_flags =
@@ -302,19 +321,33 @@ void Timeline::render_waveform(const ImVec2& segment_min,
 
   ImVec2 plot_size = segment_max - segment_min;
 
+  const std::vector<float>& audio_data =
+      AudioPlayer::s_AudioBufferInfo->audio_data;
+
+  // Normalize audio data if needed
+  std::vector<float> normalized_audio_data(audio_data.size());
+  int result = normalize_audio_data(audio_data, &normalized_audio_data);
+
+  if (result < 0) {
+    return;
+  }
+
   if (ImPlot::BeginPlot("##WaveformPlot", plot_size, flags)) {
     ImPlot::SetupAxis(ImAxis_X1, NULL, axis_flags);
     ImPlot::SetupAxis(ImAxis_Y1, NULL, axis_flags);
 
-    ImPlot::SetupAxisLimits(ImAxis_X1, 0, 1.0f, ImPlotCond_Always);
-    ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1.0f, ImPlotCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_X1, 0.0f,
+                            static_cast<double>(audio_data.size()),
+                            ImPlotCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f, ImPlotCond_Always);
 
-    ImPlot::PlotStems("Stems 1", x_samples.data(), y_samples.data(),
-                      NUMBER_OF_SAMPLES);
+    ImPlot::PlotLine("Waveform", normalized_audio_data.data(),
+                     static_cast<int>(audio_data.size()));
+
     ImPlot::EndPlot();
   }
 
-  ImPlot::PopStyleVar(style_var_set.size());
+  ImPlot::PopStyleVar(static_cast<int>(style_var_set.size()));
   ImPlot::PopStyleColor(3);
 }
 
