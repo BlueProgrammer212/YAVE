@@ -406,8 +406,8 @@ bool Application::handle_custom_events() {
       m_tools->timeline->update_segment_waveform(waveform_data->audio_data,
                                                  *dest_segment_index);
 
+      m_waveform_loader->free_waveform(waveform_data);
       delete dest_segment_index;
-      delete waveform_data;
     } break;
 
     case CustomVideoEvents::FF_TOGGLE_PAUSE_EVENT: {

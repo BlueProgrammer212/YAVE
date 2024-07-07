@@ -230,11 +230,6 @@ void WaveformLoader::free_waveform(Waveform* waveform) {
 }
 
 WaveformLoader::~WaveformLoader() {
-  for (auto& waveform_pair : s_LoadedWaveforms) {
-    if (waveform_pair.second) {
-      free_waveform(waveform_pair.second);
-    }
-  }
 }
 
 int WaveformLoader::open_file(std::string filename, Waveform* waveform,
