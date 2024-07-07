@@ -330,7 +330,11 @@ void Timeline::render_waveform(const ImVec2& segment_min,
 
   ImPlot::PushStyleColor(ImPlotCol_FrameBg, Color::TRANSPARENT);
   ImPlot::PushStyleColor(ImPlotCol_PlotBg, Color::TRANSPARENT);
-  ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+  ImVec4 waveform_vid_color =
+      ImGui::ColorConvertU32ToFloat4(Color::WAVEFORM_VID_COLOR);
+
+  ImPlot::PushStyleColor(ImPlotCol_Line, waveform_vid_color);
 
   ImGui::SetCursorScreenPos(segment_min);
 

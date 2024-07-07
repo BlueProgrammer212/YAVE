@@ -65,7 +65,7 @@ int WaveformLoader::init_swr_resampler_context(Waveform* waveform) {
 }
 
 int WaveformLoader::populate_audio_data(Waveform* waveform) {
-  constexpr int DOWNSAMPLE_FACTOR = 1024;
+  constexpr int DOWNSAMPLE_FACTOR = 512;
 
   if (init_swr_resampler_context(waveform) < 0) {
     return -1;
