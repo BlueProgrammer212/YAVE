@@ -1,2 +1,2 @@
-#YAVE
+# YAVE
 Yet Another Video Editor
