@@ -36,6 +36,7 @@ struct Segment {
   std::string name;
   float start_time;
   float end_time;
+  std::vector<float> waveform_data;
 };
 
 struct SegmentStyle {
@@ -67,6 +68,9 @@ class Timeline {
   void render();
   void update(float delta_time);
   void update_timestamp();
+
+  [[maybe_unused]] int update_segment_waveform(
+      const std::vector<float>& audio_data, int segment_index);
 
   void add_segment(const Segment& segment);
 
@@ -101,7 +105,8 @@ class Timeline {
   void render_timestamp();
   void render_ruler(const ImVec2& timestamp_max);
   void render_playhead();
-  void render_waveform(const ImVec2& segment_min, const ImVec2& segment_max);
+  void render_waveform(const ImVec2& segment_min, const ImVec2& segment_max,
+                       const std::vector<float>& audio_data);
 
   /**
    * @brief This is used to adjust the size of every sample, depending on the

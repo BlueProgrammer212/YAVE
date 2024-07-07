@@ -14,6 +14,7 @@
 
 #include "core/backend/audio_player.hpp"
 #include "core/backend/video_player.hpp"
+#include "core/backend/waveform_loader.hpp"
 
 #include <SDL_image.h>
 
@@ -24,6 +25,7 @@ class SceneEditor;
 class Timeline;
 class VideoPlayer;
 class ThumbnailLoader;
+class WaveformLoader;
 
 struct UIStyleConfig {
   UIStyleConfig(float t_font_size, float default_video_zoom)
@@ -87,6 +89,7 @@ class Application {
   std::unique_ptr<Tools> m_tools;
   std::shared_ptr<VideoPlayer> m_video_processor;
   std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
+  std::unique_ptr<WaveformLoader> m_waveform_loader;
 
   UIStyleConfig m_style_config;
 

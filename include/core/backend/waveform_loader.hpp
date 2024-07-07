@@ -6,7 +6,12 @@
 #include "core/application.hpp"
 
 namespace YAVE {
+struct WaveformState;
+struct Waveform;
+
 constexpr int MAX_FILE_NUMBER = 3;
+
+using WaveformCache = std::unordered_map<std::string, Waveform*>;
 
 struct WaveformState {
   AVFormatContext* av_format_context = nullptr;
@@ -18,10 +23,11 @@ struct WaveformState {
 };
 
 struct Waveform {
-  WaveformState state;
+  WaveformState* state;
   int sample_rate;
-  int duration;
-  std::vector<int> audio_data;
+  std::int64_t duration;
+  int segment_index;
+  std::vector<float> audio_data;
 };
 
 class WaveformLoader {
@@ -29,47 +35,33 @@ class WaveformLoader {
   WaveformLoader();
   ~WaveformLoader();
 
-  void free_waveform(std::shared_ptr<Waveform> waveform);
-
-  int enqueue_file(const char* filename);
-
-  static int open_file(const char* filename,
-                       std::shared_ptr<Waveform>& waveform_out,
-                       int* stream_index_ptr);
-
-  static int start(void* data);
+  void free_waveform(Waveform* waveform);
+  int request_audio_waveform(const char* filename);
 
   static SDL_mutex* mutex;
   static SDL_cond* cond;
 
  private:
+  static int init_swr_resampler_context(Waveform* waveform);
+
+  static int open_file(std::string filename, Waveform* waveform_out,
+                       int* stream_index_ptr);
+
+  static int start(void* data);
+  static int populate_audio_data(Waveform* waveform);
+  static int send_waveform_to_main_thread(Waveform* waveform,
+                                          int segment_index);
+
   struct FileQueue {
-    std::deque<const char*> queue;
+    std::deque<std::string> queue;
     int nb_files;
 
     [[nodiscard]] bool isFull() { return nb_files >= MAX_FILE_NUMBER; }
   };
 
-  static std::vector<std::shared_ptr<Waveform>> s_LoadedWaveforms;
+  static WaveformCache s_LoadedWaveforms;
   FileQueue* m_file_queue;
-
-  template <typename T>
-  static inline int handle_errors(int response,
-                                  T* av_packet_or_frame) noexcept {
-    if (response >= 0) {
-      return 0;
-    }
-
-    int status_code = 0;
-
-    if constexpr (std::is_same_v<T, AVPacket>) {
-      av_packet_unref(av_packet_or_frame);
-    }
-
-    // -1 for continue; and -2 to stop decoding the frames.
-    return response == AVERROR(EAGAIN) ? -1 : -2;
-  }
-
+  static SwrContext* s_ResamplerContext;
   SDL_Thread* m_waveform_loader_thread;
 };
 }  // namespace YAVE

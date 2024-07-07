@@ -11,7 +11,8 @@ bool Application::is_running = true;
 Application::Application()
     : window(nullptr),
       m_tools(std::make_unique<Tools>()),
-      m_style_config(UIStyleConfig(15.f, 1.0f)) {}
+      m_style_config(UIStyleConfig(15.f, 1.0f)),
+      m_waveform_loader(std::make_unique<WaveformLoader>()) {}
 
 Application::~Application() {
   ImGui_ImplSDL2_Shutdown();
@@ -223,9 +224,15 @@ void Application::preview_video(const char* filename) {
 
   if (current_filename.has_value()) {
     m_tools->timeline->add_segment(
-        Segment{1, current_filename.value(), accumulated_duration,
-                accumulated_duration + duration_in_seconds});
+        Segment{1,
+                current_filename.value(),
+                accumulated_duration,
+                accumulated_duration + duration_in_seconds,
+                {}});
     accumulated_duration += duration_in_seconds;
+
+    // Enqueue this file to the waveform loader.
+    m_waveform_loader->request_audio_waveform(filename);
   }
 }
 
@@ -371,7 +378,7 @@ bool Application::handle_custom_events() {
   bool is_custom_event = true;
 
   switch (m_event.type) {
-    case CustomVideoEvents::FF_REFRESH_EVENT:
+    case CustomVideoEvents::FF_REFRESH_VIDEO_EVENT:
       update_texture();
       break;
 
@@ -390,6 +397,17 @@ bool Application::handle_custom_events() {
 
       av_free(thumbnail_data->framebuffer);
       delete (thumbnail_data, file_index);
+    } break;
+
+    case CustomVideoEvents::FF_REFRESH_WAVEFORM: {
+      auto* waveform_data = static_cast<Waveform*>(m_event.user.data1);
+      auto* dest_segment_index = static_cast<int*>(m_event.user.data2);
+
+      m_tools->timeline->update_segment_waveform(waveform_data->audio_data,
+                                                 *dest_segment_index);
+
+      delete dest_segment_index;
+      delete waveform_data;
     } break;
 
     case CustomVideoEvents::FF_TOGGLE_PAUSE_EVENT: {

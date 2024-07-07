@@ -7,7 +7,7 @@ std::unique_ptr<PacketQueue> VideoPlayer::s_VideoPacketQueue =
 VideoPlayer::VideoPlayer(SampleRate t_sample_rate)
     : m_video_state(std::make_shared<VideoState>()), m_hw_device_ctx(nullptr) {
   m_audio_state->sample_rate = t_sample_rate;
-  SDL_RegisterEvents(6);
+  SDL_RegisterEvents(7);
 }
 
 VideoPlayer::~VideoPlayer() {
@@ -364,7 +364,7 @@ repeat:
 
 int VideoPlayer::refresh_texture() {
   SDL_Event event;
-  event.type = static_cast<std::uint32_t>(CustomVideoEvents::FF_REFRESH_EVENT);
+  event.type = static_cast<std::uint32_t>(CustomVideoEvents::FF_REFRESH_VIDEO_EVENT);
 
   if (SDL_PushEvent(&event) == 0) {
     return -1;

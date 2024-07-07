@@ -136,6 +136,20 @@ void Timeline::render() {
 
 #pragma region Segments
 
+int Timeline::update_segment_waveform(const std::vector<float>& audio_data,
+                                      int segment_index) {
+  if (segment_index < 0 && segment_index > m_segment_array.size()) {
+    return -1;
+  }
+
+  auto destination_segment = m_segment_array[segment_index];
+
+  // Copy the audio data from the waveform loader to the segment.
+  destination_segment->waveform_data = audio_data;
+
+  return 0;
+}
+
 void Timeline::add_segment(const Segment& segment) {
   auto new_segment = std::make_unique<Segment>();
   new_segment->track_position = segment.track_position;
@@ -177,7 +191,7 @@ void Timeline::render_segments() {
     min += m_segment_style.label_margin;
     m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
 
-    render_waveform(start_point, max);
+    render_waveform(start_point, max, segment->waveform_data);
     ImGui::SetCursorScreenPos(initial_cursor_pos);
 
     m_draw_list->AddLine(start_point, end_point, outline_color, 1.25f);
@@ -280,7 +294,8 @@ int Timeline::normalize_audio_data(const std::vector<float>& audio_data,
 }
 
 void Timeline::render_waveform(const ImVec2& segment_min,
-                               const ImVec2& segment_max) {
+                               const ImVec2& segment_max,
+                               const std::vector<float>& audio_data) {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::WAVEFORM_LAYER);
 
   // Ensure the audio stream is valid
@@ -320,9 +335,6 @@ void Timeline::render_waveform(const ImVec2& segment_min,
   ImGui::SetCursorScreenPos(segment_min);
 
   ImVec2 plot_size = segment_max - segment_min;
-
-  const std::vector<float>& audio_data =
-      AudioPlayer::s_AudioBufferInfo->audio_data;
 
   // Normalize audio data if needed
   std::vector<float> normalized_audio_data(audio_data.size());
