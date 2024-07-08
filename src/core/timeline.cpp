@@ -270,57 +270,23 @@ void Timeline::render_timestamp() {
 #pragma endregion Timestamp
 
 #pragma region Waveform
-int Timeline::normalize_audio_data(const std::vector<float>& audio_data,
-                                   std::vector<float>* out) {
-  if (out == nullptr || out->empty()) {
-    return -1;
-  }
-
-  static float highest_volume = std::numeric_limits<float>::min();
-
-  for (size_t i = 0; i < out->size(); ++i) {
-    if (audio_data[i] > highest_volume) {
-      highest_volume = audio_data[i];
-    }
-
-    if (highest_volume <= 0) {
-      return -1;
-    }
-
-    (*out)[i] = audio_data[i] / highest_volume;
-  }
-
-  return 0;
-}
-
-void Timeline::render_waveform(const ImVec2& segment_min,
-                               const ImVec2& segment_max,
+void Timeline::render_waveform(const ImVec2& min, const ImVec2& max,
                                const std::vector<float>& audio_data) {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::WAVEFORM_LAYER);
 
-  // Ensure the audio stream is valid
   if (video_processor->s_StreamList.find("Audio") ==
       video_processor->s_StreamList.end()) {
-    return;  // No audio stream found
+    return;
   }
 
   static auto audio_stream = video_processor->s_StreamList.at("Audio");
 
-  // Ensure the audio buffer info and data are valid
   if (AudioPlayer::s_AudioBufferInfo == nullptr ||
       AudioPlayer::s_AudioBufferInfo->audio_data.empty()) {
-    return;  // No audio data to render
+    return;
   }
 
-  // Render waveform using ImPlot
-  constexpr ImPlotFlags flags = ImPlotFlags_CanvasOnly;
-
-  constexpr ImPlotAxisFlags axis_flags =
-      ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_NoGridLines |
-      ImPlotAxisFlags_NoTickMarks | ImPlotAxisFlags_NoTickLabels |
-      ImPlotAxisFlags_NoLabel;
-
-  static std::vector<ImPlotStyleVar_> style_var_set = {
+  constexpr static std::array<ImPlotStyleVar_, 4> style_var_set = {
       ImPlotStyleVar_PlotPadding, ImPlotStyleVar_LabelPadding,
       ImPlotStyleVar_LegendPadding, ImPlotStyleVar_FitPadding};
 
@@ -336,28 +302,19 @@ void Timeline::render_waveform(const ImVec2& segment_min,
 
   ImPlot::PushStyleColor(ImPlotCol_Line, waveform_vid_color);
 
-  ImGui::SetCursorScreenPos(segment_min);
+  ImGui::SetCursorScreenPos(min);
+  const ImVec2& plot_size = max - min;
 
-  ImVec2 plot_size = segment_max - segment_min;
-
-  // Normalize audio data if needed
-  std::vector<float> normalized_audio_data(audio_data.size());
-  int result = normalize_audio_data(audio_data, &normalized_audio_data);
-
-  if (result < 0) {
-    return;
-  }
-
-  if (ImPlot::BeginPlot("##WaveformPlot", plot_size, flags)) {
-    ImPlot::SetupAxis(ImAxis_X1, NULL, axis_flags);
-    ImPlot::SetupAxis(ImAxis_Y1, NULL, axis_flags);
+  if (ImPlot::BeginPlot("##WaveformPlot", plot_size, ImPlotFlags_CanvasOnly)) {
+    ImPlot::SetupAxis(ImAxis_X1, NULL, WAVEFORM_AXIS_FLAGS);
+    ImPlot::SetupAxis(ImAxis_Y1, NULL, WAVEFORM_AXIS_FLAGS);
 
     ImPlot::SetupAxisLimits(ImAxis_X1, 0.0f,
                             static_cast<double>(audio_data.size()),
                             ImPlotCond_Always);
     ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f, ImPlotCond_Always);
 
-    ImPlot::PlotLine("Waveform", normalized_audio_data.data(),
+    ImPlot::PlotLine("Waveform", audio_data.data(),
                      static_cast<int>(audio_data.size()));
 
     ImPlot::EndPlot();
@@ -395,7 +352,7 @@ int Timeline::handle_ruler_events(const ImVec2& ruler_min) {
 }
 
 void Timeline::render_ruler(const ImVec2& timestamp_max) {
-  static const float ruler_height = 40.0f;
+  static const float RulerHeight = 40.0f;
 
   m_draw_list->ChannelsSetCurrent(TimelineLayers::RULER_LAYER);
 
@@ -404,7 +361,7 @@ void Timeline::render_ruler(const ImVec2& timestamp_max) {
   ruler_min.x += m_track_style.size.x;
 
   ImVec2 ruler_max =
-      ruler_min + ImVec2(m_window_size.x * m_segment_style.scale, ruler_height);
+      ruler_min + ImVec2(m_window_size.x * m_segment_style.scale, RulerHeight);
 
   ruler_max.x -= m_track_style.size.x;
 
@@ -414,16 +371,17 @@ void Timeline::render_ruler(const ImVec2& timestamp_max) {
 
   m_draw_list->AddRectFilled(ruler_min, ruler_max, Color::RULER_COLOR);
 
-  ImGui::Dummy(ImVec2(m_window_size.x, ruler_height));
+  ImGui::Dummy(ImVec2(m_window_size.x, RulerHeight));
 
   // Calculate how many markers the ruler can accommodate.
   constexpr float MARKER_LEFT_SPACING = 8.0f;
 
-  float horizontal_avail_region =
+  const float horizontal_avail_region =
       ImGui::GetWindowWidth() * m_segment_style.scale;
 
-  auto number_of_lines = (horizontal_avail_region + MARKER_LEFT_SPACING) /
-                         (2.0F + MARKER_LEFT_SPACING * m_segment_style.scale);
+  const auto number_of_lines =
+      (horizontal_avail_region + MARKER_LEFT_SPACING) /
+      (2.0F + MARKER_LEFT_SPACING * m_segment_style.scale);
 
   for (unsigned int i = 0; i < static_cast<unsigned int>(number_of_lines);
        ++i) {
@@ -431,15 +389,11 @@ void Timeline::render_ruler(const ImVec2& timestamp_max) {
     upper_vert.x += (2.0f + MARKER_LEFT_SPACING * m_segment_style.scale) * i;
 
     ImVec2 bottom_vert = upper_vert;
-    bottom_vert.y += ruler_height;
+    bottom_vert.y += RulerHeight;
 
-    // Check if the marker is within the visible region
     if (upper_vert.x >= ruler_min.x && upper_vert.x <= ruler_max.x) {
-      if (i % 5 == 0) {
-        bottom_vert.y -= 10.0f;
-      } else {
-        bottom_vert.y -= 20.0f;
-      }
+      constexpr int MILESTONE = 5;
+      bottom_vert.y -= i % MILESTONE == 0 ? 10.0f : 20.0f;
 
       m_draw_list->AddLine(upper_vert, bottom_vert,
                            IM_COL32(100, 100, 100, 255), 2.0f);
@@ -467,7 +421,7 @@ int Timeline::handle_playhead_events(const ImVec2& min, const ImVec2& max) {
 void Timeline::render_playhead() {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::CURSOR_LAYER);
 
-  float horizontal_scroll = ImGui::GetScrollX();
+  const float horizontal_scroll = ImGui::GetScrollX();
 
   ImVec2 min = ImGui::GetCursorScreenPos();
   min.x += m_track_style.size.x + m_playhead_prop.current_time;
@@ -481,8 +435,9 @@ void Timeline::render_playhead() {
   max.x += m_playhead_prop.thickness;
   max.y += m_window_size.y;
 
-  const auto min_playhead_hitbox = ImVec2(min.x - 10.0f, min.y);
-  const auto max_playhead_hitbox = ImVec2(max.x + 10.0f, max.y);
+  constexpr float HITBOX_SCALE = 30.0f;
+  const auto min_playhead_hitbox = ImVec2(min.x - HITBOX_SCALE, min.y);
+  const auto max_playhead_hitbox = ImVec2(max.x + HITBOX_SCALE, max.y);
 
   if (ImGui::IsMouseHoveringRect(min, max)) {
     handle_playhead_events(min_playhead_hitbox, max_playhead_hitbox);

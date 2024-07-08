@@ -28,7 +28,7 @@ Application::~Application() {
 
 #pragma region Init Functions
 
-int Application::initImGui() {
+int Application::initImGui(std::string version) {
   auto& [font_size, video_zoom_factor, current_zoom_factor, target_zoom_factor,
          main_font] = m_style_config;
 
@@ -54,7 +54,7 @@ int Application::initImGui() {
   }
 
   ImGui_ImplSDL2_InitForOpenGL(window, m_gl_context);
-  ImGui_ImplOpenGL3_Init("#version 330 core");
+  ImGui_ImplOpenGL3_Init(version.c_str());
 
   io.Fonts->AddFontDefault();
   io.FontGlobalScale = 1.0f;
@@ -68,26 +68,97 @@ int Application::initImGui() {
   return 0;
 }
 
+void Application::initVideoProcessor() {
+  const SampleRate sample_rate = std::make_pair<int, int>(44100, 44100);
+  m_video_processor = std::make_shared<VideoPlayer>(sample_rate);
+
+  auto& [timeline, importer, scene_editor, debugger] = *m_tools;
+
+  timeline = std::make_unique<Timeline>();
+  importer = std::make_unique<Importer>();
+  scene_editor = std::make_unique<SceneEditor>();
+  debugger = std::make_unique<Debugger>();
+
+  debugger->video_state = m_video_processor->get_videostate();
+
+  timeline->init();
+  importer->init();
+  scene_editor->init();
+
+  timeline->video_processor = m_video_processor;
+}
+
+void Application::initVideoTexture() {
+  if (m_frame_tex_id != 0) {
+    return;
+  }
+
+  glGenTextures(1, &m_frame_tex_id);
+  glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1 << 0);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
+std::string Application::configure_sdl() {
+  // TODO: Load a JSON file that contains these configurations.
+  constexpr int ANTIALIASING_FACTOR = 2;
+
+  // Decide GL+GLSL versions
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+  // GL ES 2.0 + GLSL 100
+  const char* glsl_version = "#version 100";
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(__APPLE__)
+  // GL 3.2 Core + GLSL 150
+  const char* glsl_version = "#version 150";
+  SDL_GL_SetAttribute(
+      SDL_GL_CONTEXT_FLAGS,
+      SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);  // Always required on Mac
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#else
+  // GL 4.3 + GLSL 430
+  const char* glsl_version = "#version 430 core";
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
+
+  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+  // SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
+
+  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, ANTIALIASING_FACTOR);
+
+  return std::string(glsl_version);
+}
+
 int Application::init() {
   if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
     std::cout << "Failed to initialize SDL: " << SDL_GetError() << "\n";
     return -1;
   }
 
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  std::string glsl_version = configure_sdl();
 
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  auto window_flags = static_cast<SDL_WindowFlags>(
+      SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
 
-  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
-
-  window =
-      SDL_CreateWindow("YAVE (Yet Another Video Editor)",
-                       SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280,
-                       720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+  window = SDL_CreateWindow("YAVE (Yet Another Video Editor)",
+                            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                            1280, 720, window_flags);
 
   if (!window) {
     std::cerr << "Failed to create a window.\n";
@@ -99,6 +170,8 @@ int Application::init() {
   SDL_FreeSurface(icon_surface);
 
   m_gl_context = SDL_GL_CreateContext(window);
+  SDL_GL_MakeCurrent(window, m_gl_context);
+  SDL_GL_SetSwapInterval(1);
 
   glewExperimental = GL_TRUE;
 
@@ -107,38 +180,16 @@ int Application::init() {
     return -3;
   }
 
-  SDL_GL_SetSwapInterval(1);
-
   glEnable(GL_TEXTURE_2D);
+  glEnable(GL_DEPTH_TEST);
 
-  initImGui();
-
-  const SampleRate sample_rate = std::make_pair<int, int>(44100, 44100);
-  m_video_processor = std::make_shared<VideoPlayer>(sample_rate);
-
-  {
-    auto& [timeline, importer, scene_editor, debugger] = *m_tools;
-
-    timeline = std::make_unique<Timeline>();
-    importer = std::make_unique<Importer>();
-    scene_editor = std::make_unique<SceneEditor>();
-    debugger = std::make_unique<Debugger>();
-
-    debugger->video_state = m_video_processor->get_videostate();
-
-    timeline->init();
-    importer->init();
-    scene_editor->init();
-
-    timeline->video_processor = m_video_processor;
-  }
+  initImGui(glsl_version);
+  initVideoProcessor();
 
   return 0;
 }
 
 #pragma endregion Init Functions
-
-#pragma region Update Function
 
 void Application::update() {
   static float last_time = 0.0f;
@@ -160,21 +211,73 @@ void Application::update() {
   last_time = time;
 }
 
+#pragma region Event Callbacks
+
+void Application::refresh_thumbnails() {
+  auto* thumbnail_data = static_cast<Thumbnail*>(m_event.user.data1);
+  int* file_index = static_cast<int*>(m_event.user.data2);
+
+  // Update the OpenGL texture after obtaining the thumbnail data.
+  m_tools->importer->refresh_thumbnail_textures(*thumbnail_data, *file_index);
+
+  av_free(thumbnail_data->framebuffer);
+  delete (thumbnail_data, file_index);
+}
+
+void Application::seek_to_requested_timestamp() {
+  const auto* requested_timestamp = static_cast<float*>(m_event.user.data1);
+
+  bool result =
+      m_video_processor->seek_frame(static_cast<float>(*requested_timestamp));
+
+  if (result != 0) {
+    std::cerr << "Failed to jump to timestamp: " << *requested_timestamp
+              << "\n";
+  }
+
+  delete requested_timestamp;
+}
+
+void Application::refresh_timeline_waveform() {
+  auto* waveform_data = static_cast<Waveform*>(m_event.user.data1);
+  auto* dest_segment_index = static_cast<int*>(m_event.user.data2);
+
+  m_tools->timeline->update_segment_waveform(waveform_data->audio_data,
+                                             *dest_segment_index);
+
+  m_waveform_loader->free_waveform(waveform_data);
+  delete dest_segment_index;
+}
+
 void Application::update_texture() {
+  static int last_width = m_video_size.width;
+  static int last_height = m_video_size.height;
+
   auto video_state = m_video_processor->get_videostate();
   m_video_size.width = video_state->dimensions.x;
   m_video_size.height = video_state->dimensions.y;
 
-  glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
+  // If the frame needs to be resized, use glTexImage2D instead.
+  if (m_video_size.width != last_width || m_video_size.height != last_height) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_video_size.width,
+                 m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_video_size.width,
-               m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-               m_video_processor->get_framebuffer());
+    last_width = m_video_size.width;
+    last_height = m_video_size.height;
 
-  glBindTexture(GL_TEXTURE_2D, 0);
+    return;
+  }
+
+  // Using glTexSubImage2D when the color format is not changed.
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_video_size.width,
+                  m_video_size.height, GL_RGBA, GL_UNSIGNED_BYTE,
+                  m_video_processor->get_framebuffer());
+
+  last_width = m_video_size.width;
+  last_height = m_video_size.height;
 }
 
-#pragma endregion Update Function
+#pragma endregion Event Callbacks
 
 #pragma region Video Player
 
@@ -196,18 +299,12 @@ void Application::preview_video(const char* filename) {
   m_video_size.width = video_state->dimensions.x;
   m_video_size.height = video_state->dimensions.y;
 
-  // Initialize the frame OpenGL texture.
-  if (m_frame_tex_id == 0) {
-    glGenTextures(1, &m_frame_tex_id);
-    glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  initVideoTexture();
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-  }
+  // Allocate memory for the new video dimensions.
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_video_size.width,
+               m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+               m_video_processor->get_framebuffer());
 
   const std::int64_t duration = m_video_processor->getDuration();
 
@@ -222,18 +319,20 @@ void Application::preview_video(const char* filename) {
   const std::optional<std::string> current_filename =
       Importer::get_filename_from_url(std::string(filename));
 
-  if (current_filename.has_value()) {
-    m_tools->timeline->add_segment(
-        Segment{1,
-                current_filename.value(),
-                accumulated_duration,
-                accumulated_duration + duration_in_seconds,
-                {}});
-    accumulated_duration += duration_in_seconds;
-
-    // Enqueue this file to the waveform loader.
-    m_waveform_loader->request_audio_waveform(filename);
+  if (!current_filename.has_value()) {
+    return;
   }
+
+  const auto end_timestamp = accumulated_duration + duration_in_seconds;
+
+  const auto new_segment = Segment{
+      1, current_filename.value(), accumulated_duration, end_timestamp, {}};
+
+  m_tools->timeline->add_segment(new_segment);
+  accumulated_duration += duration_in_seconds;
+
+  // Enqueue this file to the waveform loader.
+  m_waveform_loader->request_audio_waveform(filename);
 }
 
 void Application::handle_zooming(float delta_time) {
@@ -313,14 +412,13 @@ void Application::render_video_preview() {
 void Application::render() {
   const auto& [timeline, importer, scene_editor, debugger] = *m_tools;
 
-  ImGui_ImplSDL2_NewFrame();
   ImGui_ImplOpenGL3_NewFrame();
+  ImGui_ImplSDL2_NewFrame();
   ImGui::NewFrame();
-
   ImGui::PushFont(m_style_config.main_font);
 
   const auto& main_viewport = ImGui::GetMainViewport();
-  ImGui::DockSpaceOverViewport(main_viewport);
+  ImGui::DockSpaceOverViewport(ImGui::GetID(main_viewport), main_viewport);
 
   timeline->render();
   importer->render();
@@ -330,26 +428,13 @@ void Application::render() {
   render_video_preview();
 
   ImGui::PopFont();
-
   ImGui::Render();
 
-  static ImGuiIO& io = ImGui::GetIO();
-
-  int display_w, display_h;
-  SDL_GL_GetDrawableSize(window, &display_w, &display_h);
-
-  io.DisplaySize =
-      ImVec2(static_cast<float>(display_w), static_cast<float>(display_h));
+  ImGuiIO& io = ImGui::GetIO();
 
   glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-  glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
-
-  glMatrixMode(GL_PROJECTION);
-  glLoadIdentity();
-  glOrtho(0.0, display_w, display_h, 0.0, -1.0, 1.0);
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
 
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -362,6 +447,7 @@ void Application::render() {
   }
 
   SDL_GL_SwapWindow(window);
+  ImGui::EndFrame();
 }
 
 #pragma endregion Render Function
@@ -379,7 +465,9 @@ bool Application::handle_custom_events() {
 
   switch (m_event.type) {
     case CustomVideoEvents::FF_REFRESH_VIDEO_EVENT:
+      glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
       update_texture();
+      glBindTexture(GL_TEXTURE_2D, 0);
       break;
 
     case CustomVideoEvents::FF_LOAD_NEW_VIDEO_EVENT: {
@@ -387,50 +475,25 @@ bool Application::handle_custom_events() {
       preview_video(url.c_str());
     } break;
 
-    case CustomVideoEvents::FF_REFRESH_THUMBNAIL: {
-      auto* thumbnail_data = static_cast<Thumbnail*>(m_event.user.data1);
-      int* file_index = static_cast<int*>(m_event.user.data2);
+    case CustomVideoEvents::FF_REFRESH_THUMBNAIL:
+      refresh_thumbnails();
+      break;
 
-      // Update the OpenGL texture after obtaining the thumbnail data.
-      m_tools->importer->refresh_thumbnail_textures(*thumbnail_data,
-                                                    *file_index);
+    case CustomVideoEvents::FF_REFRESH_WAVEFORM:
+      refresh_timeline_waveform();
+      break;
 
-      av_free(thumbnail_data->framebuffer);
-      delete (thumbnail_data, file_index);
-    } break;
-
-    case CustomVideoEvents::FF_REFRESH_WAVEFORM: {
-      auto* waveform_data = static_cast<Waveform*>(m_event.user.data1);
-      auto* dest_segment_index = static_cast<int*>(m_event.user.data2);
-
-      m_tools->timeline->update_segment_waveform(waveform_data->audio_data,
-                                                 *dest_segment_index);
-
-      m_waveform_loader->free_waveform(waveform_data);
-      delete dest_segment_index;
-    } break;
-
-    case CustomVideoEvents::FF_TOGGLE_PAUSE_EVENT: {
+    case CustomVideoEvents::FF_TOGGLE_PAUSE_EVENT:
       m_video_processor->pause_video();
-    } break;
+      break;
 
     case CustomVideoEvents::FF_MUTE_AUDIO_EVENT:
       m_video_processor->toggle_audio();
       break;
 
-    case CustomVideoEvents::FF_SEEK_TO_TIMESTAMP_EVENT: {
-      const auto* requested_timestamp = static_cast<float*>(m_event.user.data1);
-
-      bool ret = m_video_processor->seek_frame(
-          static_cast<float>(*requested_timestamp));
-
-      if (ret != 0) {
-        std::cerr << "Failed to jump to timestamp: " << *requested_timestamp
-                  << "\n";
-      }
-
-      delete requested_timestamp;
-    } break;
+    case CustomVideoEvents::FF_SEEK_TO_TIMESTAMP_EVENT:
+      seek_to_requested_timestamp();
+      break;
 
     default:
       is_custom_event = false;
@@ -458,6 +521,10 @@ void Application::handle_events() {
   ImGui_ImplSDL2_ProcessEvent(&m_event);
 
   if (m_event.type == SDL_QUIT) {
+    is_running = false;
+  } else if (m_event.type == SDL_WINDOWEVENT &&
+             m_event.window.event == SDL_WINDOWEVENT_CLOSE &&
+             m_event.window.windowID == SDL_GetWindowID(window)) {
     is_running = false;
   } else if (m_event.type == SDL_KEYUP) {
     handle_keyup_events();

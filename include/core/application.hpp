@@ -6,8 +6,8 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <imgui/imgui.h>
-#include <imgui/imgui_impl_opengl3.h>
 #include <imgui/imgui_impl_sdl2.h>
+#include <imgui/imgui_impl_opengl3.h>
 
 #include <implot.h>
 #include <implot_internal.h>
@@ -60,21 +60,28 @@ class Application {
   void preview_video(const char* filename);
 
   int init();
-  int initImGui();
+  int initImGui(std::string version);
+  void initVideoProcessor();
+  void initVideoTexture();
+  std::string configure_sdl();
 
   void update();
 
   void render();
   void render_video_preview();
 
+ public:
   void handle_events();
   void handle_keyup_events();
   bool handle_custom_events();
-
-  const ImVec2 maintain_video_aspect_ratio();
   void handle_zooming(float delta_time);
+  const ImVec2 maintain_video_aspect_ratio();
 
+ public:
   void update_texture();
+  void refresh_timeline_waveform();
+  void seek_to_requested_timestamp();
+  void refresh_thumbnails();
 
   SDL_Window* window;
   SDL_GLContext m_gl_context;

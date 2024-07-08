@@ -78,6 +78,7 @@ int ThumbnailLoader::compare_previous_histogram(
   return LAST_HISTOGRAM_BETTER;
 }
 
+#pragma region Thumbnail Picker
 int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data,
                                          bool use_middle_frame) {
   if (use_middle_frame) {
@@ -145,9 +146,7 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data,
       last_histogram = current_histogram;
       av_frame_ref(best_frame, dummy_frame);
 
-      best_frame_count++;
-
-      if (best_frame_count > TRIALS_NB) {
+      if (++best_frame_count > TRIALS_NB) {
         break;
       }
     }
@@ -177,6 +176,8 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data,
 
   return 0;
 }
+
+#pragma endregion Thumbnail Picker
 
 int ThumbnailLoader::update_framebuffer(Thumbnail* data) {
   const int width = data->stream_info.width;
@@ -269,23 +270,11 @@ int ThumbnailLoader::peek_video_frame_by_timestamp(const int64_t seconds,
   return seek_ret;
 }
 
-std::optional<Thumbnail*> ThumbnailLoader::load_video_thumbnail(
-    const std::string& path) {
-  auto* data = new Thumbnail();
-
-  // Open the format context and initialize the video stream.
-  data->av_format_context = avformat_alloc_context();
-
-  int open_ret = avformat_open_input(&data->av_format_context, path.c_str(),
-                                     nullptr, nullptr);
-
-  if (open_ret != 0) {
-    return std::nullopt;
-  }
-
-  for (std::uint32_t i = 0; i < data->av_format_context->nb_streams; ++i) {
-    auto& stream = data->av_format_context->streams[i];
-    auto& stream_info = data->stream_info;
+int ThumbnailLoader::find_streams(AVFormatContext* av_format_context,
+                                  Thumbnail* userdata) {
+  for (std::uint32_t i = 0; i < userdata->av_format_context->nb_streams; ++i) {
+    auto& stream = userdata->av_format_context->streams[i];
+    auto& stream_info = userdata->stream_info;
     AVCodec* av_codec = avcodec_find_decoder(stream->codecpar->codec_id);
 
     if (!av_codec || stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
@@ -299,35 +288,66 @@ std::optional<Thumbnail*> ThumbnailLoader::load_video_thumbnail(
     stream_info.width = stream->codecpar->width;
     stream_info.height = stream->codecpar->height;
 
-    m_duration = data->av_format_context->duration;
+    m_duration = userdata->av_format_context->duration;
 
     break;
   }
 
-  data->stream_info.av_codec_ctx =
-      avcodec_alloc_context3(data->stream_info.av_codec);
+  return 0;
+}
 
-  if (!data->stream_info.av_codec_ctx || !data->stream_info.av_codec_params) {
-    return std::nullopt;
+int ThumbnailLoader::open_file(std::string filename, Thumbnail* userdata) {
+  // Open the format context and initialize the video stream.
+  userdata->av_format_context = avformat_alloc_context();
+
+  int open_ret = avformat_open_input(&userdata->av_format_context,
+                                     filename.c_str(), nullptr, nullptr);
+
+  if (open_ret != 0) {
+    return -1;
   }
 
-  if (avcodec_parameters_to_context(data->stream_info.av_codec_ctx,
-                                    data->stream_info.av_codec_params) < 0) {
-    return std::nullopt;
+  if (find_streams(userdata->av_format_context, userdata) != 0) {
+    return -1;
+  };
+
+  userdata->stream_info.av_codec_ctx =
+      avcodec_alloc_context3(userdata->stream_info.av_codec);
+
+  if (!userdata->stream_info.av_codec_ctx ||
+      !userdata->stream_info.av_codec_params) {
+    return -1;
   }
 
-  if (avcodec_open2(data->stream_info.av_codec_ctx, data->stream_info.av_codec,
-                    nullptr)) {
-    return std::nullopt;
+  if (avcodec_parameters_to_context(userdata->stream_info.av_codec_ctx,
+                                    userdata->stream_info.av_codec_params) <
+      0) {
+    return -1;
   }
 
-  if (data->stream_info.width <= 0 || data->stream_info.height <= 0) {
-    return std::nullopt;
+  if (avcodec_open2(userdata->stream_info.av_codec_ctx,
+                    userdata->stream_info.av_codec, nullptr)) {
+    return -1;
   }
 
-  this->allocate_frame_buffer(data);
+  if (userdata->stream_info.width <= 0 || userdata->stream_info.height <= 0) {
+    return -1;
+  }
 
-  if (!data->framebuffer) {
+  this->allocate_frame_buffer(userdata);
+
+  if (!userdata->framebuffer) {
+    return -1;
+  }
+
+  return 0;
+}
+
+std::optional<Thumbnail*> ThumbnailLoader::load_video_thumbnail(
+    const std::string& path) {
+  auto* data = new Thumbnail();
+
+  if (open_file(path, reinterpret_cast<Thumbnail*>(data)) < 0) {
     return std::nullopt;
   }
 

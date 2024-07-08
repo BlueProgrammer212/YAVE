@@ -68,11 +68,11 @@ class Importer {
 
   [[nodiscard]] static int is_extension_compatible(std::string filename);
 
-  [[nodiscard]] static std::optional<std::string> truncate_filename(float max_width, const std::string& filename);
+  [[nodiscard]] static std::optional<std::string> truncate_filename(
+      float max_width, const std::string& filename);
 
   void handle_video_loading_events(const ImVec2& min, const ImVec2& max,
-                                   const std::string& filename,
-                                   const int index);
+                                   const VideoFile* file, const int index);
 
   void request_video_preview(const std::string& video_filename);
 

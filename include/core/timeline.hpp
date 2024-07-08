@@ -18,6 +18,15 @@ struct PlayheadProperties;
 
 constexpr unsigned int NUMBER_OF_TRACKS = 5;
 
+// clang-format off
+constexpr ImPlotAxisFlags WAVEFORM_AXIS_FLAGS =
+    ImPlotAxisFlags_NoDecorations | 
+    ImPlotAxisFlags_NoGridLines   |
+    ImPlotAxisFlags_NoTickMarks   | 
+    ImPlotAxisFlags_NoTickLabels  |
+    ImPlotAxisFlags_NoLabel;
+// clang-format on
+
 enum TimelineLayers {
   TRACK_BACKGROUND_LAYER,
   SEGMENT_LAYER,
@@ -101,22 +110,15 @@ class Timeline {
 
  private:
   void render_segments();
+  void handle_segments();
+  void render_waveform(const ImVec2& min, const ImVec2& max,
+                       const std::vector<float>& audio_data);
+
+ private:
   void render_tracks();
   void render_timestamp();
   void render_ruler(const ImVec2& timestamp_max);
   void render_playhead();
-  void render_waveform(const ImVec2& segment_min, const ImVec2& segment_max,
-                       const std::vector<float>& audio_data);
-
-  /**
-   * @brief This is used to adjust the size of every sample, depending on the
-   *        highest volume.
-   * @param audio_data A collection of audio samples.
-   * @param[out] out A pointer to where the normalized audio sample should go.
-   * @return int 
-   */
-  int normalize_audio_data(const std::vector<float>& audio_data,
-                           std::vector<float>* out);
 
   ImVec2 m_window_size;
   ImVec2 m_child_window_size;

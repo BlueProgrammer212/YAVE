@@ -53,11 +53,10 @@ void Importer::load_entry(const std::filesystem::directory_entry& entry) {
   for (; mantissa >= 1024; mantissa /= 1024, ++unit_index)
     ;
 
-  const auto readable_size =
-      std::ceil(static_cast<double>(mantissa) * 10.) / 10.;
+  double readable_size = std::ceil(static_cast<double>(mantissa) * 10.) / 10.;
 
   video_file_data.size =
-      std::to_string(readable_size) + "BKMGTPE"[unit_index] + "B";
+      std::to_string(static_cast<int>(readable_size)) + "BKMGTPE"[unit_index] + "B";
 
   m_user_data->file_paths.push_back(video_file_data);
 }
@@ -134,10 +133,11 @@ ImVec2 Importer::maintain_thumbnail_aspect_ratio(ImVec2* thumbnail_min,
 
   auto& thumbnail_size = m_window_data->thumbnail_size;
 
-  const float texture_aspect_ratio =
+  float texture_aspect_ratio =
       static_cast<float>(dimensions.x) / static_cast<float>(dimensions.y);
 
-  const float thumbnail_aspect_ratio = thumbnail_size.x / thumbnail_size.y;
+  float thumbnail_aspect_ratio = thumbnail_size.x / thumbnail_size.y;
+
   ImVec2 display_size;
 
   if (texture_aspect_ratio > 1.0f) {
@@ -157,14 +157,19 @@ ImVec2 Importer::maintain_thumbnail_aspect_ratio(ImVec2* thumbnail_min,
 }
 
 void Importer::handle_video_loading_events(const ImVec2& min, const ImVec2& max,
-                                           const std::string& filename,
+                                           const VideoFile* file,
                                            const int index) {
   if (!ImGui::IsMouseHoveringRect(min, max)) {
     return;
   }
 
+  std::string tooltip_content =
+      "Filename: " + file->filename + "\n" + "Size: " + file->size + "\n";
+
+  ImGui::SetTooltip(tooltip_content.c_str());
+
   if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-    request_video_preview(filename);
+    request_video_preview(file->filename);
     m_window_data->active_index = -1;
     return;
   }
@@ -194,7 +199,7 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
 
   ImVec2 max = min + thumbnail_size;
 
-  handle_video_loading_events(min, max, filename, index);
+  handle_video_loading_events(min, max, video_file, index);
 
   // Draw the button
   m_window_data->draw_list->AddRectFilled(min, max, Color::VID_FILE_BTN_COLOR,
@@ -274,7 +279,7 @@ void Importer::render() {
 
   ImGui::BeginChild("#file_explorer", ImGui::GetContentRegionAvail(), true);
 
-  const float avail_region_width = ImGui::GetContentRegionAvail().x;
+  float avail_region_width = ImGui::GetContentRegionAvail().x;
 
   m_window_data->draw_list = ImGui::GetWindowDrawList();
 

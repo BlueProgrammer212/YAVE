@@ -10,9 +10,9 @@ int SDL_main(int argc, char* argv[]) {
   };
 
   while (app.is_running) {
+    app.handle_events();
     app.update();
     app.render();
-    app.handle_events();
   }
 
   return 0;

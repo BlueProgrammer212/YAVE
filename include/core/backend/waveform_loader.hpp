@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "core/application.hpp"
+#include "core/backend/loader.hpp"
 
 namespace YAVE {
 struct WaveformState;

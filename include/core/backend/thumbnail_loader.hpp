@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/backend/loader.hpp"
 #include "core/backend/video_player.hpp"
 
 namespace YAVE {
@@ -14,15 +15,20 @@ struct Thumbnail {
 
 enum HistogramComparisonResults {
   LAST_HISTOGRAM_BETTER = 0,
-  NEW_HISTOGRAM_BETTER  = 1
+  NEW_HISTOGRAM_BETTER = 1
 };
 
-class ThumbnailLoader {
+using Histogram = std::vector<int>;
+
+class ThumbnailLoader : public Loader<Thumbnail> {
  public:
   ThumbnailLoader();
-  ~ThumbnailLoader();
+  ~ThumbnailLoader() override;
 
-  void allocate_frame_buffer(Thumbnail* data);
+  int open_file(std::string filename, Thumbnail* userdata) override;
+  int find_streams(AVFormatContext* av_format_context, Thumbnail* userdata) override;
+  void allocate_frame_buffer(Thumbnail* data) override;
+
   int update_framebuffer(Thumbnail* data);
   int decode_frame(Thumbnail* data);
   int send_packet(Thumbnail* data, int retry_nb = 0);
@@ -32,8 +38,8 @@ class ThumbnailLoader {
   std::optional<Thumbnail*> load_video_thumbnail(const std::string& path);
   int peek_video_frame_by_timestamp(const int64_t seconds, Thumbnail* data);
 
-  int compare_previous_histogram(const std::vector<int>& new_histogram,
-                                 const std::vector<int>& old_histogram);
+  int compare_previous_histogram(const Histogram& new_histogram,
+                                 const Histogram& old_histogram);
 
   std::vector<int> extract_histogram(AVFrame* frame, int num_bins = 256);
 
