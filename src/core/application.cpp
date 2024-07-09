@@ -406,6 +406,9 @@ void Application::render() {
   ImGui::NewFrame();
   ImGui::PushFont(m_style_config.main_font);
 
+  ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+  ImGui::DockSpaceOverViewport(main_viewport->ID);
+
   timeline->render();
   importer->render();
   scene_editor->render();
