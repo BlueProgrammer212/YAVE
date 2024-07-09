@@ -11,7 +11,7 @@ Importer::Importer()
 Importer::~Importer() {}
 
 std::optional<std::string> Importer::get_filename_from_url(std::string path) {
-  std::size_t last_slash_pos = path.find_last_of('/');
+  const std::size_t last_slash_pos = path.find_last_of('/');
 
   if (last_slash_pos != std::string::npos) {
     return path.substr(last_slash_pos + 1);
@@ -55,8 +55,8 @@ void Importer::load_entry(const std::filesystem::directory_entry& entry) {
 
   double readable_size = std::ceil(static_cast<double>(mantissa) * 10.) / 10.;
 
-  video_file_data.size =
-      std::to_string(static_cast<int>(readable_size)) + "BKMGTPE"[unit_index] + "B";
+  video_file_data.size = std::to_string(static_cast<int>(readable_size)) +
+                         "BKMGTPE"[unit_index] + "B";
 
   m_user_data->file_paths.push_back(video_file_data);
 }
@@ -186,24 +186,27 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
   auto& draw_list = m_window_data->draw_list;
   auto& thumbnail_size = m_window_data->thumbnail_size;
 
-  *max_column_nb_ptr =
-      static_cast<int>((avail_width + THUMBNAIL_MARGIN.x) /
-                       (thumbnail_size.x + THUMBNAIL_MARGIN.x));
+  const auto thumbnail_final_pos = thumbnail_size + THUMBNAIL_MARGIN;
+
+  *max_column_nb_ptr = static_cast<int>((avail_width + THUMBNAIL_MARGIN.x) /
+                                        thumbnail_final_pos.x);
+
   *max_column_nb_ptr = std::max(*max_column_nb_ptr, 1);
 
+  const int current_column = index % *max_column_nb_ptr;
+  const int current_row = index / *max_column_nb_ptr;
+
   ImVec2 min = ImGui::GetCursorScreenPos();
-  min.x +=
-      (thumbnail_size.x + THUMBNAIL_MARGIN.x) * (index % *max_column_nb_ptr);
-  min.y +=
-      (thumbnail_size.y + THUMBNAIL_MARGIN.y) * (index / *max_column_nb_ptr);
+  min.x += thumbnail_final_pos.x * current_column;
+  min.y += thumbnail_final_pos.y * current_row;
 
   ImVec2 max = min + thumbnail_size;
 
   handle_video_loading_events(min, max, video_file, index);
 
-  // Draw the button
+  // Draw the thumbnail container.
   m_window_data->draw_list->AddRectFilled(min, max, Color::VID_FILE_BTN_COLOR,
-                                          0.5f);
+                                          0.75f);
 
   if (video_file->texture_id != 0) {
     ImVec2 thumbnail_min = min;
@@ -216,20 +219,36 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
   }
 
   if (m_window_data->active_index == index) {
-    draw_list->AddRectFilled(min, max, IM_COL32(0, 182, 227, 100), 0.5f);
+    draw_list->AddRectFilled(min, max, Color::THUMBNAIL_HOVERED, 0.5f);
   }
 
   const std::optional<std::string>& truncated_filename =
       truncate_filename(thumbnail_size.x, filename);
 
-  if (truncated_filename.has_value()) {
-    float text_width = ImGui::CalcTextSize(filename.c_str()).x;
-    ImVec2 text_pos = ImVec2(min.x + (thumbnail_size.x - text_width) / 2,
-                             max.y + THUMBNAIL_VIDEO_TITLE_TOP_PADDING);
-
-    draw_list->AddText(text_pos, IM_COL32_WHITE,
-                       truncated_filename.value().c_str());
+  if (!truncated_filename.has_value()) {
+    return;
   }
+
+  const float text_width = ImGui::CalcTextSize(filename.c_str()).x;
+
+  const auto text_pos = ImVec2(min.x + (thumbnail_size.x - text_width) / 2,
+                               max.y + THUMBNAIL_VIDEO_TITLE_TOP_PADDING);
+
+  draw_list->AddText(text_pos, IM_COL32_WHITE,
+                     truncated_filename.value().c_str());
+}
+
+void Importer::init_thumbnail_texture(unsigned int* texture_id) {
+  glGenTextures(1, texture_id);
+  glBindTexture(GL_TEXTURE_2D, *texture_id);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void Importer::refresh_thumbnail_textures(const Thumbnail thumbnail,
@@ -238,23 +257,18 @@ void Importer::refresh_thumbnail_textures(const Thumbnail thumbnail,
   auto& texture_id = video_file.texture_id;
 
   if (texture_id == 0) {
-    glGenTextures(1, &texture_id);
-    glBindTexture(GL_TEXTURE_2D, texture_id);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    init_thumbnail_texture(&texture_id);
   }
 
   glBindTexture(GL_TEXTURE_2D, texture_id);
 
   video_file.resolution = thumbnail.dimension;
 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, thumbnail.dimension.x,
+  int preferred_format;
+  glGetInternalformativ(GL_TEXTURE_2D, GL_RGB, GL_TEXTURE_IMAGE_FORMAT, 1,
+                        &preferred_format);
+
+  glTexImage2D(GL_TEXTURE_2D, 0, preferred_format, thumbnail.dimension.x,
                thumbnail.dimension.y, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                thumbnail.framebuffer);
 
@@ -299,6 +313,8 @@ void Importer::render() {
 
   if (m_user_data->status_code < 0) {
     ImGui::Begin("Error", nullptr);
+    const std::string final_error_message =
+        "An error occured while trying to import this file: " + m_error_message;
     ImGui::Text(m_error_message.c_str());
     ImGui::End();
   }

@@ -19,6 +19,7 @@ constexpr ImU32 CURSOR_COLOR        = IM_COL32(200, 20,  20,  255);
 
 #pragma region Importer
 constexpr ImU32 VID_FILE_BTN_COLOR  = IM_COL32(40,  40,  40,  255);
+constexpr ImU32 THUMBNAIL_HOVERED   = IM_COL32(0,   182, 227, 100);
 #pragma endregion Importer
 
 #pragma region Waveform

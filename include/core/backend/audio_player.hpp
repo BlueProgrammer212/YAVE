@@ -255,12 +255,6 @@ class AudioPlayer {
   static int update_audio_stream(AudioState* userdata, Uint8* sdl_stream,
                                  int& len);
 
-  /**
-   * @brief Loads the audio waveform of the current input.
-   * @return 0 <= for success, a negative integer for error.
-   */
-  virtual int load_audio_waveform() { return 0; };
-
 #pragma region Helper Functions
   /**
    * @brief Converts planar audio data to an interleaved audio data.
@@ -274,7 +268,7 @@ class AudioPlayer {
    */
   void toggle_audio();
 
-  [[nodiscard]] inline bool isMuted() const {
+  [[nodiscard]] inline bool is_muted() const {
     return m_audio_state->flags & AudioFlags::IS_MUTED;
   }
 
@@ -309,7 +303,7 @@ class AudioPlayer {
    * @param av_rational
    * @return true if the rational is valid. 
    */
-  [[nodiscard]] static inline bool isValidRational(AVRational av_rational) {
+  [[nodiscard]] static inline bool is_rational_valid(AVRational av_rational) {
     return av_rational.den > 0 && av_rational.num > 0;
   }
 #pragma endregion Helper Functions

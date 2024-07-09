@@ -5,8 +5,8 @@
 #define NO_SDL_GLEXT
 #define GLEW_STATIC
 
-#include <SDL.h>
 #include <GL/glew.h>
+#include <SDL.h>
 #include <SDL_opengl.h>
 
 #include "core/application.hpp"
@@ -116,12 +116,6 @@ class VideoPlayer : public AudioPlayer {
    * @return 0 <= for success, a negative integer for error.
    */
   int open_video(const char* path);
-
-  /**
-   * @brief Loads the audio waveform of the current input.
-   * @return 0 <= for success, a negative integer for error.
-   */
-  int load_audio_waveform() override;
 
   /**
    * @brief Plays the active input file.

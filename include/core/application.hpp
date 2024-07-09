@@ -60,9 +60,9 @@ class Application {
   void preview_video(const char* filename);
 
   int init();
-  int initImGui(std::string version);
-  void initVideoProcessor();
-  void initVideoTexture();
+  int init_imgui(std::string version);
+  void init_video_processor();
+  void init_video_texture();
   std::string configure_sdl();
 
   void update();
@@ -90,8 +90,9 @@ class Application {
 
  private:
   unsigned int m_frame_tex_id = 0;
+  int m_preferred_image_format = 0;
 
-  [[nodiscard]] std::string getRequestedURL(void* userdata);
+  [[nodiscard]] std::string get_requested_url(void* userdata);
 
   std::unique_ptr<Tools> m_tools;
   std::shared_ptr<VideoPlayer> m_video_processor;

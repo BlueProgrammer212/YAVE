@@ -364,7 +364,8 @@ repeat:
 
 int VideoPlayer::refresh_texture() {
   SDL_Event event;
-  event.type = static_cast<std::uint32_t>(CustomVideoEvents::FF_REFRESH_VIDEO_EVENT);
+  event.type =
+      static_cast<std::uint32_t>(CustomVideoEvents::FF_REFRESH_VIDEO_EVENT);
 
   if (SDL_PushEvent(&event) == 0) {
     return -1;
@@ -502,7 +503,7 @@ void VideoPlayer::update_pts(VideoState* state, AVPacket* packet) {
   // Get the PTS of the current video frame.
   state->pts = (is_dts_avail ? static_cast<double>(s_LatestFrame->pts) : 0);
 
-  if (isValidRational(time_base)) {
+  if (is_rational_valid(time_base)) {
     state->pts *= av_q2d(time_base);
   }
 }
@@ -639,7 +640,7 @@ int VideoPlayer::seek_frame(float seconds) {
   for (const std::string& key : stream_ids) {
     const auto& stream_info = s_StreamList.at(key);
 
-    if (!isValidRational(stream_info->timebase)) {
+    if (!is_rational_valid(stream_info->timebase)) {
       SDL_UnlockMutex(PacketQueue::mutex);
       return -1;
     }
@@ -686,15 +687,6 @@ void VideoPlayer::pause_video() {
 }
 
 #pragma endregion Frame Reader
-
-#pragma region Waveform Loader
-
-int VideoPlayer::load_audio_waveform() {
-
-  return -1;
-}
-
-#pragma endregion Waveform Loader
 
 #pragma region Deallocation
 void VideoPlayer::free_ffmpeg() {

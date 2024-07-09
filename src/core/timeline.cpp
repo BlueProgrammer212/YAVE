@@ -86,7 +86,7 @@ void Timeline::render() {
 
   ImGui::SameLine();
 
-  if (ImGui::Button(video_processor->isMuted() ? "Unmute" : "Mute")) {
+  if (ImGui::Button(video_processor->is_muted() ? "Unmute" : "Mute")) {
     SDL_Event mute_event;
     mute_event.type = CustomVideoEvents::FF_MUTE_AUDIO_EVENT;
     SDL_PushEvent(&mute_event);

@@ -37,16 +37,6 @@ struct ImporterWindowData {
   int active_index = -1;
 };
 
-inline std::string getErrorMsgFromErrCode(int errcode) {
-  switch (errcode) {
-    case -1:
-      std::cout << "This file does not contain an audio stream.\n";
-      break;
-    default:
-      std::cout << "Imported sucessfully!.\n";
-  }
-}
-
 class Importer {
  public:
   Importer();
@@ -83,6 +73,7 @@ class Importer {
   static void send_thumbnail_to_main_thread(std::optional<Thumbnail*> thumbnail,
                                             int file_index);
 
+  void init_thumbnail_texture(unsigned int* texture_id);
   void refresh_thumbnail_textures(const Thumbnail thumbnail, int file_index);
 
   static int load_thumbnail_callback(void* userdata);
@@ -93,8 +84,20 @@ class Importer {
 
   inline void open_err_dialog(int errcode) {
     m_user_data->status_code = errcode;
-    m_error_message = getErrorMsgFromErrCode(errcode);
+    m_error_message = get_error_message_from_errcode(errcode);
   };
+
+  // TODO: Create a JSON file containing the error messages.
+  static inline std::string get_error_message_from_errcode(int errcode) {
+    switch (errcode) {
+      case -1:
+        std::cout << "This file does not contain an audio stream.\n";
+        break;
+      default:
+        std::cout << "Imported sucessfully!.\n";
+        break;
+    }
+  }
 
   static std::unique_ptr<ThumbnailLoader> s_ThumbnailLoader;
 

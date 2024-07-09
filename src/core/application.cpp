@@ -28,7 +28,7 @@ Application::~Application() {
 
 #pragma region Init Functions
 
-int Application::initImGui(std::string version) {
+int Application::init_imgui(std::string version) {
   auto& [font_size, video_zoom_factor, current_zoom_factor, target_zoom_factor,
          main_font] = m_style_config;
 
@@ -68,7 +68,7 @@ int Application::initImGui(std::string version) {
   return 0;
 }
 
-void Application::initVideoProcessor() {
+void Application::init_video_processor() {
   const SampleRate sample_rate = std::make_pair<int, int>(44100, 44100);
   m_video_processor = std::make_shared<VideoPlayer>(sample_rate);
 
@@ -88,7 +88,7 @@ void Application::initVideoProcessor() {
   timeline->video_processor = m_video_processor;
 }
 
-void Application::initVideoTexture() {
+void Application::init_video_texture() {
   if (m_frame_tex_id != 0) {
     return;
   }
@@ -101,37 +101,26 @@ void Application::initVideoTexture() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glGetInternalformativ(GL_TEXTURE_2D, GL_RGB, GL_TEXTURE_IMAGE_FORMAT, 1,
+                        &m_preferred_image_format);
 }
 
 std::string Application::configure_sdl() {
   // TODO: Load a JSON file that contains these configurations.
   constexpr int ANTIALIASING_FACTOR = 2;
 
-  // Decide GL+GLSL versions
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-  // GL ES 2.0 + GLSL 100
-  const char* glsl_version = "#version 100";
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif defined(__APPLE__)
-  // GL 3.2 Core + GLSL 150
-  const char* glsl_version = "#version 150";
+#if defined(__APPLE__)
   SDL_GL_SetAttribute(
       SDL_GL_CONTEXT_FLAGS,
       SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);  // Always required on Mac
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-#else
-  // GL 4.3 + GLSL 430
+#endif
+
   const char* glsl_version = "#version 430 core";
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-#endif
 
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
@@ -183,8 +172,8 @@ int Application::init() {
   glEnable(GL_TEXTURE_2D);
   glEnable(GL_DEPTH_TEST);
 
-  initImGui(glsl_version);
-  initVideoProcessor();
+  init_imgui(glsl_version);
+  init_video_processor();
 
   return 0;
 }
@@ -259,7 +248,7 @@ void Application::update_texture() {
 
   // If the frame needs to be resized, use glTexImage2D instead.
   if (m_video_size.width != last_width || m_video_size.height != last_height) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_video_size.width,
+    glTexImage2D(GL_TEXTURE_2D, 0, m_preferred_image_format, m_video_size.width,
                  m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
     last_width = m_video_size.width;
@@ -299,10 +288,10 @@ void Application::preview_video(const char* filename) {
   m_video_size.width = video_state->dimensions.x;
   m_video_size.height = video_state->dimensions.y;
 
-  initVideoTexture();
+  init_video_texture();
 
   // Allocate memory for the new video dimensions.
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_video_size.width,
+  glTexImage2D(GL_TEXTURE_2D, 0, m_preferred_image_format, m_video_size.width,
                m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                m_video_processor->get_framebuffer());
 
@@ -310,7 +299,7 @@ void Application::preview_video(const char* filename) {
 
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  if (!AudioPlayer::isValidRational(m_time_base)) {
+  if (!AudioPlayer::is_rational_valid(m_time_base)) {
     return;
   }
 
@@ -417,9 +406,6 @@ void Application::render() {
   ImGui::NewFrame();
   ImGui::PushFont(m_style_config.main_font);
 
-  const auto& main_viewport = ImGui::GetMainViewport();
-  ImGui::DockSpaceOverViewport(ImGui::GetID(main_viewport), main_viewport);
-
   timeline->render();
   importer->render();
   scene_editor->render();
@@ -454,7 +440,7 @@ void Application::render() {
 
 #pragma region Event Handler
 
-[[nodiscard]] std::string Application::getRequestedURL(void* userdata) {
+[[nodiscard]] std::string Application::get_requested_url(void* userdata) {
   const auto& filename = static_cast<std::string*>(userdata);
   std::string directory = m_tools->importer->get_current_directory();
   return directory + *filename;
@@ -471,7 +457,7 @@ bool Application::handle_custom_events() {
       break;
 
     case CustomVideoEvents::FF_LOAD_NEW_VIDEO_EVENT: {
-      const std::string& url = getRequestedURL(m_event.user.data1);
+      const std::string& url = get_requested_url(m_event.user.data1);
       preview_video(url.c_str());
     } break;
 
