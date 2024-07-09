@@ -204,13 +204,13 @@ void Application::update() {
 
 void Application::refresh_thumbnails() {
   auto* thumbnail_data = static_cast<Thumbnail*>(m_event.user.data1);
-  int* file_index = static_cast<int*>(m_event.user.data2);
+  auto* url = static_cast<std::string*>(m_event.user.data2);
 
   // Update the OpenGL texture after obtaining the thumbnail data.
-  m_tools->importer->refresh_thumbnail_textures(*thumbnail_data, *file_index);
+  m_tools->importer->refresh_thumbnail_textures(*thumbnail_data, *url);
 
   av_free(thumbnail_data->framebuffer);
-  delete (thumbnail_data, file_index);
+  delete (thumbnail_data, url);
 }
 
 void Application::seek_to_requested_timestamp() {
@@ -270,10 +270,10 @@ void Application::update_texture() {
 
 #pragma region Video Player
 
-void Application::preview_video(const char* filename) {
-  static float accumulated_duration = 0.0f;
+void Application::preview_video(const std::string& filename) {
+  static float cumulative_timestamp = 0.0f;
 
-  if (m_video_processor->open_video(filename) != 0) {
+  if (m_video_processor->open_video(filename.c_str()) != 0) {
     std::cout << "Failed to open the video.\n";
     return;
   };
@@ -312,16 +312,28 @@ void Application::preview_video(const char* filename) {
     return;
   }
 
-  const auto end_timestamp = accumulated_duration + duration_in_seconds;
+  const auto end_timestamp = cumulative_timestamp + duration_in_seconds;
 
-  const auto new_segment = Segment{
-      1, current_filename.value(), accumulated_duration, end_timestamp, {}};
+  // Obtain the thumbnail texture id.
+  int file_index = m_tools->importer->find_file_by_url(filename);
+  const auto& importer_user_data = m_tools->importer->get_user_data();
+  const auto& current_video_file = importer_user_data->file_paths[file_index];
+
+  constexpr unsigned int DEFAULT_TRACK_POSITION = 1;
+
+  const auto new_segment = Segment{DEFAULT_TRACK_POSITION,
+                                   current_filename.value(),
+                                   cumulative_timestamp,
+                                   end_timestamp,
+                                   {},  // The waveform data is empty for now.
+                                   current_video_file.texture_id,
+                                   current_video_file.resolution};
 
   m_tools->timeline->add_segment(new_segment);
-  accumulated_duration += duration_in_seconds;
+  cumulative_timestamp += duration_in_seconds;
 
   // Enqueue this file to the waveform loader.
-  m_waveform_loader->request_audio_waveform(filename);
+  m_waveform_loader->request_audio_waveform(filename.c_str());
 }
 
 void Application::handle_zooming(float delta_time) {
@@ -461,7 +473,7 @@ bool Application::handle_custom_events() {
 
     case CustomVideoEvents::FF_LOAD_NEW_VIDEO_EVENT: {
       const std::string& url = get_requested_url(m_event.user.data1);
-      preview_video(url.c_str());
+      preview_video(url);
     } break;
 
     case CustomVideoEvents::FF_REFRESH_THUMBNAIL:

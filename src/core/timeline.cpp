@@ -156,7 +156,51 @@ void Timeline::add_segment(const Segment& segment) {
   new_segment->name = segment.name;
   new_segment->start_time = segment.start_time;
   new_segment->end_time = segment.end_time;
+  new_segment->thumbnail_texture_id = segment.thumbnail_texture_id;
+  new_segment->thumbnail_tex_dimensions = segment.thumbnail_tex_dimensions;
   m_segment_array.push_back(std::move(new_segment));
+}
+
+void Timeline::maintain_thumbnail_aspect_ratio(const VideoDimension& resolution,
+                                               ImVec2& min, ImVec2& max,
+                                               const ImVec2& content_region) {
+  float texture_aspect_ratio =
+      static_cast<float>(resolution.x) / static_cast<float>(resolution.y);
+
+  float thumbnail_aspect_ratio = static_cast<float>(content_region.x) /
+                                 static_cast<float>(content_region.y);
+
+  if (texture_aspect_ratio > 1.0f) {
+    max.x = content_region.x;
+    max.y = content_region.x / texture_aspect_ratio;
+  } else {
+    max.x = content_region.y * texture_aspect_ratio;
+    max.y = content_region.y;
+  }
+
+  min.x += (content_region.x - max.x) * 0.5f;
+  min.y += (content_region.y - max.y) * 0.5f;
+}
+
+void Timeline::render_segment_thumbnail(const ImVec2& min, unsigned int tex_id,
+                                        const VideoDimension& resolution) {
+  auto thumbnail_content_region =
+      ImVec2(80.0f, m_track_style.size.y / 2);
+
+  auto thumbnail_min = min;
+  auto thumbnail_max = thumbnail_content_region;
+
+  maintain_thumbnail_aspect_ratio(resolution, thumbnail_min, thumbnail_max,
+                                  thumbnail_content_region);
+
+  const auto& texture_id_as_ptr = static_cast<std::uintptr_t>(tex_id);
+
+  // Render the background of the thumbnail.
+  m_draw_list->AddRectFilled(min, min + thumbnail_content_region,
+                             IM_COL32_BLACK, 0.0f);
+
+  m_draw_list->AddImage(reinterpret_cast<ImTextureID>(texture_id_as_ptr),
+                        thumbnail_min, thumbnail_min + thumbnail_max);
 }
 
 void Timeline::render_segments() {
@@ -166,6 +210,9 @@ void Timeline::render_segments() {
   m_draw_list->ChannelsSetCurrent(TimelineLayers::SEGMENT_LAYER);
 
   for (auto& segment : m_segment_array) {
+    auto& texture_id = segment->thumbnail_texture_id;
+    auto& thumbnail_dimensions = segment->thumbnail_tex_dimensions;
+
     ImVec2 min = ImGui::GetCursorScreenPos();
 
     const float delta_time = segment->end_time - segment->start_time;
@@ -187,8 +234,12 @@ void Timeline::render_segments() {
     m_draw_list->AddRectFilled(min, max, m_segment_style.color,
                                m_segment_style.border_radius);
 
+    render_segment_thumbnail(min, texture_id, thumbnail_dimensions);
+
     // Render the segment label.
     min += m_segment_style.label_margin;
+    min.x += 80.0f;
+
     m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
 
     render_waveform(start_point, max, segment->waveform_data);

@@ -6,8 +6,8 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <imgui/imgui.h>
-#include <imgui/imgui_impl_sdl2.h>
 #include <imgui/imgui_impl_opengl3.h>
+#include <imgui/imgui_impl_sdl2.h>
 
 #include <implot.h>
 #include <implot_internal.h>
@@ -57,7 +57,7 @@ class Application {
   Application();
   ~Application();
 
-  void preview_video(const char* filename);
+  void preview_video(const std::string& filename);
 
   int init();
   int init_imgui(std::string version);

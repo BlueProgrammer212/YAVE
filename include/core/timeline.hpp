@@ -15,6 +15,7 @@ struct Segment;
 struct SegmentStyle;
 struct TrackStyle;
 struct PlayheadProperties;
+struct VideoDimension;
 
 constexpr unsigned int NUMBER_OF_TRACKS = 5;
 
@@ -31,9 +32,9 @@ enum TimelineLayers {
   TRACK_BACKGROUND_LAYER,
   SEGMENT_LAYER,
   WAVEFORM_LAYER,
+  RULER_LAYER,
   CURSOR_LAYER,
   TRACK_LAYER,
-  RULER_LAYER,
   TIMESTAMP_LAYER
 };
 
@@ -46,6 +47,8 @@ struct Segment {
   float start_time;
   float end_time;
   std::vector<float> waveform_data;
+  unsigned int thumbnail_texture_id = 0;
+  VideoDimension thumbnail_tex_dimensions;
 };
 
 struct SegmentStyle {
@@ -110,6 +113,13 @@ class Timeline {
 
  private:
   void render_segments();
+  void render_segment_thumbnail(const ImVec2& min, unsigned int tex_id,
+                                const VideoDimension& resolution);
+
+  void maintain_thumbnail_aspect_ratio(const VideoDimension& resolution,
+                                       ImVec2& min, ImVec2& max,
+                                       const ImVec2& content_region);
+
   void handle_segments();
   void render_waveform(const ImVec2& min, const ImVec2& max,
                        const std::vector<float>& audio_data);

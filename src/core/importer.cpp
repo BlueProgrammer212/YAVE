@@ -166,7 +166,9 @@ void Importer::handle_video_loading_events(const ImVec2& min, const ImVec2& max,
   std::string tooltip_content =
       "Filename: " + file->filename + "\n" + "Size: " + file->size + "\n";
 
-  ImGui::SetTooltip(tooltip_content.c_str());
+  ImGui::BeginTooltip();
+  ImGui::Text(tooltip_content.c_str());
+  ImGui::EndTooltip();
 
   if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
     request_video_preview(file->filename);
@@ -214,7 +216,7 @@ void Importer::render_files(float avail_width, VideoFile* video_file,
     ImVec2 thumbnail_max =
         maintain_thumbnail_aspect_ratio(&thumbnail_min, video_file->resolution);
 
-    draw_list->AddImage(reinterpret_cast<void*>(video_file->texture_id),
+    draw_list->AddImage(reinterpret_cast<ImTextureID>(video_file->texture_id),
                         thumbnail_min, thumbnail_min + thumbnail_max);
   }
 
@@ -252,7 +254,14 @@ void Importer::init_thumbnail_texture(unsigned int* texture_id) {
 }
 
 void Importer::refresh_thumbnail_textures(const Thumbnail thumbnail,
-                                          int file_index) {
+                                          const std::string& url) {
+  int file_index = find_file_by_url(url);
+
+  if (file_index < 0) {
+    std::cout << "Failed to find the file by its url.\n";
+    return;
+  }
+
   VideoFile& video_file = m_user_data->file_paths[file_index];
   auto& texture_id = video_file.texture_id;
 
@@ -329,7 +338,7 @@ int Importer::load_thumbnail_callback(void* userdata) {
     }
 
     request_load_thumbnail(importer_user_data,
-                           importer_user_data->file_paths[i].filename, i);
+                           importer_user_data->file_paths[i].filename);
   }
 
   return 0;
@@ -346,27 +355,26 @@ void Importer::request_video_preview(const std::string& video_filename) {
 }
 
 void Importer::send_thumbnail_to_main_thread(
-    std::optional<Thumbnail*> thumbnail, int file_index) {
+    std::optional<Thumbnail*> thumbnail, std::string url) {
   if (!thumbnail.has_value()) {
     return;
   }
 
-  auto file_index_uptr = std::make_unique<int>(file_index);
+  auto file_url_uptr = std::make_unique<std::string>(url);
 
   SDL_Event event;
   event.type = CustomVideoEvents::FF_REFRESH_THUMBNAIL;
   event.user.data1 = thumbnail.value();
-  event.user.data2 = file_index_uptr.release();
+  event.user.data2 = file_url_uptr.release();
 
   SDL_PushEvent(&event);
 }
 
 void Importer::request_load_thumbnail(ImporterUserData* data,
-                                      const std::string& video_filename,
-                                      int file_index) {
+                                      const std::string& video_filename) {
   const std::string url = data->current_directory + video_filename;
   auto thumbnail = s_ThumbnailLoader->load_video_thumbnail(url);
-  send_thumbnail_to_main_thread(thumbnail, file_index);
+  send_thumbnail_to_main_thread(thumbnail, url);
 }
 
 }  // namespace YAVE

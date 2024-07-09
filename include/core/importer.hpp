@@ -67,14 +67,32 @@ class Importer {
   void request_video_preview(const std::string& video_filename);
 
   static void request_load_thumbnail(ImporterUserData* data,
-                                     const std::string& video_filename,
-                                     int file_index);
+                                     const std::string& video_filename);
 
   static void send_thumbnail_to_main_thread(std::optional<Thumbnail*> thumbnail,
-                                            int file_index);
+                                            std::string url);
 
   void init_thumbnail_texture(unsigned int* texture_id);
-  void refresh_thumbnail_textures(const Thumbnail thumbnail, int file_index);
+  void refresh_thumbnail_textures(const Thumbnail thumbnail,
+                                  const std::string& url);
+
+  [[nodiscard]] inline int find_file_by_url(const std::string& url) noexcept {
+    auto& paths = m_user_data->file_paths;
+
+    auto index_of_path =
+        std::find_if(paths.begin(), paths.end(),
+                     [&](const VideoFile& file) { return url == file.path; });
+
+    if (index_of_path != paths.end()) {
+      return std::distance(paths.begin(), index_of_path);
+    }
+
+    return -1;
+  }
+
+  [[nodiscard]] inline std::unique_ptr<ImporterUserData>& get_user_data() {
+    return m_user_data;
+  }
 
   static int load_thumbnail_callback(void* userdata);
 
