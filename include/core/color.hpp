@@ -2,7 +2,8 @@
 
 #include "application.hpp"
 
-namespace YAVE {
+namespace YAVE
+{
 // clang-format off
 namespace Color {
 constexpr ImU32 PRIMARY             = IM_COL32(20,  20,  24,  255);
@@ -25,6 +26,6 @@ constexpr ImU32 THUMBNAIL_HOVERED   = IM_COL32(0,   182, 227, 100);
 #pragma region Waveform
 constexpr ImU32 WAVEFORM_VID_COLOR  = IM_COL32(0, 200, 250, 255);
 #pragma endregion Waveform
-// clang-format on
-}  // namespace Color
-}  // namespace YAVE
+    // clang-format on
+} // namespace Color
+} // namespace YAVE

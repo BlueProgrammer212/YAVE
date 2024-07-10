@@ -2,16 +2,18 @@
 
 #include "application.hpp"
 
-namespace YAVE {
-class SceneEditor {
- public:
-  SceneEditor() = default;
-  ~SceneEditor(){};
+namespace YAVE
+{
+class SceneEditor
+{
+public:
+    SceneEditor() = default;
+    ~SceneEditor(){};
 
-  void init();
-  void update();
-  void render();
+    void init();
+    void update();
+    void render();
 
- private:
+private:
 };
-}  // namespace YAVE
+} // namespace YAVE

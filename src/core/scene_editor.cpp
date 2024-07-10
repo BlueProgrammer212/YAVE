@@ -1,12 +1,14 @@
 #include "core/scene_editor.hpp"
 
-namespace YAVE {
+namespace YAVE
+{
 void SceneEditor::init() {}
 
 void SceneEditor::update() {}
 
-void SceneEditor::render() {
-  ImGui::Begin("Scene Properties Editor");
-  ImGui::End();
+void SceneEditor::render()
+{
+    ImGui::Begin("Scene Properties Editor");
+    ImGui::End();
 }
-}  // namespace YAVE
+} // namespace YAVE

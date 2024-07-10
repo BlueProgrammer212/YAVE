@@ -18,7 +18,8 @@
 
 #include <SDL_image.h>
 
-namespace YAVE {
+namespace YAVE
+{
 class Debugger;
 class Importer;
 class SceneEditor;
@@ -28,82 +29,85 @@ class ThumbnailLoader;
 class WaveformLoader;
 
 struct UIStyleConfig {
-  UIStyleConfig(float t_font_size, float default_video_zoom)
-      : font_size(t_font_size),
-        main_font(nullptr),
-        video_zoom_factor(default_video_zoom) {}
+    UIStyleConfig(float t_font_size, float default_video_zoom)
+        : font_size(t_font_size)
+        , main_font(nullptr)
+        , video_zoom_factor(default_video_zoom)
+    {
+    }
 
-  float font_size;
-  float video_zoom_factor;
-  float current_zoom_factor = 1.0f;
-  float target_zoom_factor = 1.0f;
-  ImFont* main_font;
+    float font_size;
+    float video_zoom_factor;
+    float current_zoom_factor = 1.0f;
+    float target_zoom_factor = 1.0f;
+    ImFont* main_font;
 };
 
 struct Tools {
-  std::unique_ptr<Timeline> timeline{};
-  std::unique_ptr<Importer> importer{};
-  std::unique_ptr<SceneEditor> scene_editor{};
-  std::unique_ptr<Debugger> debugger{};
+    std::unique_ptr<Timeline> timeline{};
+    std::unique_ptr<Importer> importer{};
+    std::unique_ptr<SceneEditor> scene_editor{};
+    std::unique_ptr<Debugger> debugger{};
 };
 
 struct VideoResolution {
-  int width;
-  int height;
+    int width;
+    int height;
 };
 
-class Application {
- public:
-  Application();
-  ~Application();
+class Application
+{
+public:
+    Application();
+    ~Application();
 
-  void preview_video(const std::string& filename);
+    void preview_video(const std::string& filename);
 
-  int init();
-  int init_imgui(std::string version);
-  void init_video_processor();
-  void init_video_texture();
-  std::string configure_sdl();
+    int init();
+    int init_imgui(std::string version);
+    void init_video_processor();
+    void init_video_texture();
+    std::string configure_sdl();
 
-  void update();
+    void update();
 
-  void render();
-  void render_video_preview();
+    void render();
+    void render_video_preview();
 
- public:
-  void handle_events();
-  void handle_keyup_events();
-  bool handle_custom_events();
-  void handle_zooming(float delta_time);
-  const ImVec2 maintain_video_aspect_ratio();
+public:
+    void handle_events();
+    void handle_keyup_events();
+    bool handle_custom_events();
+    void handle_zooming(float delta_time);
+    const ImVec2 maintain_video_aspect_ratio();
 
- public:
-  void update_texture();
-  void refresh_timeline_waveform();
-  void seek_to_requested_timestamp();
-  void refresh_thumbnails();
+public:
+    void update_texture();
+    void refresh_timeline_waveform();
+    void seek_to_requested_timestamp();
+    void refresh_thumbnails();
 
-  SDL_Window* window;
-  SDL_GLContext m_gl_context;
+    SDL_Window* window;
+    SDL_GLContext m_gl_context;
 
-  static bool is_running;
+    static bool is_running;
 
- private:
-  unsigned int m_frame_tex_id = 0;
-  int m_preferred_image_format = 0;
+private:
+    unsigned int m_frame_tex_id = 0;
+    int m_preferred_image_format = 0;
 
-  [[nodiscard]] std::string get_requested_url(void* userdata);
+    [[nodiscard]] std::string get_requested_url(void* userdata);
 
-  std::unique_ptr<Tools> m_tools;
-  std::shared_ptr<VideoPlayer> m_video_processor;
-  std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
-  std::unique_ptr<WaveformLoader> m_waveform_loader;
+    std::unique_ptr<Tools> m_tools;
+    std::shared_ptr<VideoPlayer> m_video_processor;
+    std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
+    std::unique_ptr<WaveformLoader> m_waveform_loader;
 
-  UIStyleConfig m_style_config;
+    UIStyleConfig m_style_config;
 
-  SDL_Event m_event;
+    SDL_Event m_event;
 
-  VideoResolution m_video_size;
-  AVRational m_time_base;
+    VideoResolution m_video_size;
+    AVRational m_time_base;
 };
-}  // namespace YAVE
+} // namespace YAVE
