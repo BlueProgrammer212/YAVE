@@ -23,15 +23,6 @@ std::optional<std::string> Importer::get_filename_from_url(std::string path)
     return std::nullopt;
 }
 
-int Importer::is_extension_compatible(std::string filename)
-{
-    if (!av_guess_format(nullptr, filename.c_str(), nullptr)) {
-        return -1;
-    }
-
-    return 0;
-}
-
 void Importer::load_entry(const std::filesystem::directory_entry& entry)
 {
     if (!std::filesystem::is_regular_file(entry.status()) || !entry.path().has_filename() ||
@@ -55,7 +46,7 @@ void Importer::load_entry(const std::filesystem::directory_entry& entry)
     for (; mantissa >= 1024; mantissa /= 1024, ++unit_index)
         ;
 
-    double readable_size = std::ceil(static_cast<double>(mantissa) * 10.) / 10.;
+    auto readable_size = std::ceil(static_cast<double>(mantissa) * 10.) / 10.;
 
     video_file_data.size =
         std::to_string(static_cast<int>(readable_size)) + "BKMGTPE"[unit_index] + "B";
@@ -118,11 +109,7 @@ void Importer::handle_zooming(float dt)
 
     current_zoom_factor = 1.0f;
 
-    if (!ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
-        return;
-    }
-
-    if (ImGui::IsWindowHovered()) {
+    if (ImGui::IsWindowHovered() && ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
         current_zoom_factor += io->MouseWheel * 0.1f;
     }
 }
@@ -158,13 +145,9 @@ ImVec2 Importer::maintain_thumbnail_aspect_ratio(ImVec2* thumbnail_min, VideoDim
     return display_size;
 }
 
-void Importer::handle_video_loading_events(
+void Importer::hover_video_file_callback(
     const ImVec2& min, const ImVec2& max, const VideoFile* file, const int index)
 {
-    if (!ImGui::IsMouseHoveringRect(min, max)) {
-        return;
-    }
-
     std::string tooltip_content =
         "Filename: " + file->filename + "\n" + "Size: " + file->size + "\n";
 
@@ -207,7 +190,9 @@ void Importer::render_files(
 
     ImVec2 max = min + thumbnail_size;
 
-    handle_video_loading_events(min, max, video_file, index);
+    if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(min, max)) {
+        hover_video_file_callback(min, max, video_file, index);
+    }
 
     // Draw the thumbnail container.
     m_window_data->draw_list->AddRectFilled(min, max, Color::VID_FILE_BTN_COLOR, 0.75f);

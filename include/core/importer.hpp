@@ -57,12 +57,16 @@ public:
         ImVec2* thumbnail_min, VideoDimension dimensions);
 
     [[nodiscard]] static std::optional<std::string> get_filename_from_url(std::string path);
-    [[nodiscard]] static int is_extension_compatible(std::string filename);
+
+    [[nodiscard]] static inline int is_extension_compatible(const std::string& filename) noexcept
+    {
+        return av_guess_format(nullptr, filename.c_str(), nullptr) ? 0 : -1;
+    };
 
     [[nodiscard]] static std::optional<std::string> truncate_filename(
         float max_width, const std::string& filename);
 
-    void handle_video_loading_events(
+    void hover_video_file_callback(
         const ImVec2& min, const ImVec2& max, const VideoFile* file, const int index);
 
 public:

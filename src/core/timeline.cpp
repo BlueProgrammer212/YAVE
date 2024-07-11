@@ -43,7 +43,7 @@ void Timeline::init()
 
 void Timeline::update_timestamp()
 {
-    const double master_clock = AudioPlayer::get_master_clock();
+    const double master_clock = AudioPlayer::get_video_internal_clock();
 
     const int total_seconds = static_cast<int>(std::floor(master_clock));
     const int milliseconds = static_cast<int>((master_clock - total_seconds) * 1000);
@@ -68,7 +68,7 @@ void Timeline::update(float delta_time)
     m_track_style.size.y = track_proportion * m_window_size.y;
 
     m_playhead_prop.current_time =
-        static_cast<float>(AudioPlayer::get_master_clock()) * m_segment_style.scale;
+        static_cast<float>(AudioPlayer::get_video_internal_clock()) * m_segment_style.scale;
 
     update_timestamp();
 }

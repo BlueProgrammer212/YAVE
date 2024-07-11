@@ -299,9 +299,9 @@ public:
         return s_AudioPacketQueue;
     }
 
-    [[nodiscard]] static inline const double& get_master_clock()
+    [[nodiscard]] static inline const double& get_video_internal_clock()
     {
-        return s_MasterClock;
+        return s_VideoInternalClock;
     }
 
     [[nodiscard]] static inline const double& get_audio_internal_clock()
@@ -359,7 +359,7 @@ protected:
     static double s_PauseStartTime;
     static double s_PauseEndTime;
 
-    static double s_MasterClock;
+    static double s_VideoInternalClock;
     static double s_AudioInternalClock;
 
     std::unique_ptr<AudioDeviceInfo> m_device_info;

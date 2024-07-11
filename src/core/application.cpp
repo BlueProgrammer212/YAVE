@@ -47,14 +47,35 @@ int Application::init_imgui(std::string version)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard |
         ImGuiConfigFlags_ViewportsEnable;
 
-    ImGui::StyleColorsDark();
+    ImGui::StyleColorsClassic();
 
     {
-        ImGuiStyle* style = &ImGui::GetStyle();
-        style->WindowRounding = 10.0f;
-        style->WindowBorderSize = 2.5f;
-        style->TabRounding = 5.0f;
-        style->WindowPadding = ImVec2(15.0f, 15.0f);
+        ImVec4* colors = ImGui::GetStyle().Colors;
+        Color::dark_theme(colors);
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowPadding = ImVec2(8.00f, 8.00f);
+        style.FramePadding = ImVec2(5.00f, 2.00f);
+        style.CellPadding = ImVec2(6.00f, 6.00f);
+        style.ItemSpacing = ImVec2(6.00f, 6.00f);
+        style.ItemInnerSpacing = ImVec2(6.00f, 6.00f);
+        style.TouchExtraPadding = ImVec2(0.00f, 0.00f);
+        style.IndentSpacing = 25;
+        style.ScrollbarSize = 15;
+        style.GrabMinSize = 10;
+        style.WindowBorderSize = 1;
+        style.ChildBorderSize = 1;
+        style.PopupBorderSize = 1;
+        style.FrameBorderSize = 1;
+        style.TabBorderSize = 1;
+        style.WindowRounding = 7;
+        style.ChildRounding = 4;
+        style.FrameRounding = 3;
+        style.PopupRounding = 4;
+        style.ScrollbarRounding = 9;
+        style.GrabRounding = 3;
+        style.LogSliderDeadzone = 4;
+        style.TabRounding = 4;
     }
 
     ImGui_ImplSDL2_InitForOpenGL(window, m_gl_context);
@@ -180,6 +201,8 @@ int Application::init()
     init_imgui(glsl_version);
     init_video_processor();
 
+    // av_log_set_level(AV_LOG_DEBUG);
+
     return 0;
 }
 
@@ -253,7 +276,6 @@ void Application::update_texture()
     m_video_size.width = video_state->dimensions.x;
     m_video_size.height = video_state->dimensions.y;
 
-    // If the frame needs to be resized, use glTexImage2D instead.
     if (m_video_size.width != last_width || m_video_size.height != last_height) {
         glTexImage2D(GL_TEXTURE_2D, 0, m_preferred_image_format, m_video_size.width,
             m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -264,7 +286,6 @@ void Application::update_texture()
         return;
     }
 
-    // Using glTexSubImage2D when the color format is not changed.
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_video_size.width, m_video_size.height, GL_RGBA,
         GL_UNSIGNED_BYTE, m_video_processor->get_framebuffer());
 
@@ -534,7 +555,7 @@ void Application::handle_events()
         m_event.window.windowID == SDL_GetWindowID(window)) {
         is_running = false;
     } else if (m_event.type == SDL_KEYUP) {
-        handle_keyup_events();
+        // handle_keyup_events();
     }
 }
 #pragma endregion Event Handler

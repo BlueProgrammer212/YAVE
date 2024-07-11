@@ -118,7 +118,7 @@ int VideoPlayer::init_sws_scaler_ctx(VideoState* video_state)
     // Convert planar YUV 4:2:0 pixel format to packed RGB 8:8:8 pixel format
     // with bilinear rescaling algorithm.
     sws_scaler_ctx = sws_getContext(width, height, stream_info->av_codec_ctx->pix_fmt, width,
-        height, AV_PIX_FMT_RGB0, SWS_BILINEAR, nullptr, nullptr, nullptr);
+        height, AV_PIX_FMT_RGB0, SWS_BICUBIC, nullptr, nullptr, nullptr);
 
     if (!sws_scaler_ctx) {
         std::cout << "Failed to initialize the sw scaler.\n";
@@ -489,12 +489,12 @@ void VideoPlayer::synchronize_video(VideoState* video_state)
     frame_delay += s_LatestFrame->repeat_pict * (frame_delay * 0.5);
 
     if (video_state->pts != 0) {
-        s_MasterClock = video_state->pts;
+        s_VideoInternalClock = video_state->pts;
     } else {
-        video_state->pts = s_MasterClock;
+        video_state->pts = s_VideoInternalClock;
     }
 
-    s_MasterClock += frame_delay;
+    s_VideoInternalClock += frame_delay;
 
     actual_delay = calculateActualDelay(video_state, video_state->frame_timer);
     SDL_Delay(static_cast<Uint32>(actual_delay * 1000 + 0.5));
@@ -577,7 +577,7 @@ int VideoPlayer::decode_video_frame(VideoState* video_state, AVPacket* video_pac
     int receive_frame_errcode =
         avcodec_receive_frame(video_stream_info->av_codec_ctx, s_LatestFrame);
 
-    if (send_pkt_errcode < 0) {
+    if (receive_frame_errcode < 0) {
         return -1;
     }
 
@@ -668,8 +668,8 @@ int VideoPlayer::seek_frame(float seconds)
         avcodec_flush_buffers(stream_info->av_codec_ctx);
     }
 
-    s_MasterClock = seconds;
-    s_AudioInternalClock = s_MasterClock;
+    s_VideoInternalClock = seconds;
+    s_AudioInternalClock = s_VideoInternalClock;
 
     m_audio_state->audio_diff_avg_count = 0;
     m_audio_state->delta_accum = 0.0;
@@ -762,7 +762,7 @@ void VideoPlayer::reset_video_state()
     s_AudioPacketQueue->clear();
 
     // Reset the clock network.
-    s_MasterClock = 0.0;
+    s_VideoInternalClock = 0.0;
     s_AudioInternalClock = 0.0;
     m_video_state->frame_timer = 0.0;
     m_video_state->is_first_frame = true;

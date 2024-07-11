@@ -25,11 +25,11 @@ struct WaveformState {
 };
 
 struct Waveform {
-    WaveformState* state;
-    int sample_rate;
-    std::int64_t duration;
-    int segment_index;
-    std::vector<float> audio_data;
+    WaveformState* state = nullptr;
+    int sample_rate = 44100;
+    std::int64_t duration = 0;
+    int segment_index = -1;
+    std::vector<float> audio_data = {};
 };
 
 class WaveformLoader

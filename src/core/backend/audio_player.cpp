@@ -13,7 +13,7 @@ AVPacket* AudioPlayer::s_LatestPacket = nullptr;
 StreamMap AudioPlayer::s_StreamList = {};
 
 // Initialize the clock network.
-double AudioPlayer::s_MasterClock = 0.0;
+double AudioPlayer::s_VideoInternalClock = 0.0;
 double AudioPlayer::s_AudioInternalClock = 0.0;
 
 double AudioPlayer::s_PauseStartTime = 0.0;
@@ -250,7 +250,7 @@ int AudioPlayer::add_dummy_samples(
 int AudioPlayer::synchronize_audio(
     struct AudioState* audio_state, float* samples, int num_samples, int* samples_size)
 {
-    const double delta = s_AudioInternalClock - s_MasterClock;
+    const double delta = s_AudioInternalClock - s_VideoInternalClock;
     double avg_diff = 0.0;
 
     const auto sample_rate = audio_state->av_codec_ctx->sample_rate;

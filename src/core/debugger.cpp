@@ -19,7 +19,7 @@ void Debugger::render()
     const std::string video_pts = "Current Video PTS: " + std::to_string(video_state->pts) + " sec";
 
     const std::string video_internal_clock =
-        "Video Internal Clock: " + std::to_string(AudioPlayer::get_master_clock()) + " sec";
+        "Video Internal Clock: " + std::to_string(AudioPlayer::get_video_internal_clock()) + " sec";
 
     const std::string audio_internal_clock =
         "Audio Internal Clock: " + std::to_string(AudioPlayer::get_audio_internal_clock()) + " sec";
@@ -28,7 +28,7 @@ void Debugger::render()
     static int count_sample = 0;
     static double diff_sum = 0;
 
-    diff_sum += AudioPlayer::get_master_clock() - AudioPlayer::get_audio_internal_clock();
+    diff_sum += AudioPlayer::get_video_internal_clock() - AudioPlayer::get_audio_internal_clock();
 
     count_sample++;
 
