@@ -710,6 +710,7 @@ void VideoPlayer::free_ffmpeg()
 
     av_frame_free(&s_LatestFrame);
     av_packet_free(&s_LatestPacket);
+    av_packet_free(&s_LatestAudioPacket);
 
     if (m_hw_device_ctx) {
         // Unreference the hardware device context

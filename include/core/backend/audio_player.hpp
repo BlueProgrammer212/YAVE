@@ -354,6 +354,7 @@ protected:
 protected:
     static AVFrame* s_LatestFrame;
     static AVPacket* s_LatestPacket;
+    static AVPacket* s_LatestAudioPacket;
 
 protected:
     static double s_PauseStartTime;

@@ -1,5 +1,6 @@
 #include "core/application.hpp"
 
+#include "core/backend/subtitle_player.hpp"
 #include "core/debugger.hpp"
 #include "core/importer.hpp"
 #include "core/scene_editor.hpp"
@@ -47,7 +48,7 @@ int Application::init_imgui(std::string version)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard |
         ImGuiConfigFlags_ViewportsEnable;
 
-    ImGui::StyleColorsClassic();
+    ImGui::StyleColorsDark();
 
     {
         ImVec4* colors = ImGui::GetStyle().Colors;
@@ -240,7 +241,8 @@ void Application::refresh_thumbnails()
     m_tools->importer->refresh_thumbnail_textures(*thumbnail_data, *url);
 
     av_free(thumbnail_data->framebuffer);
-    delete (thumbnail_data, url);
+    delete thumbnail_data;
+    delete url;
 }
 
 void Application::seek_to_requested_timestamp()

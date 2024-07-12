@@ -9,6 +9,7 @@ SwrContext* AudioPlayer::s_Resampler_Context = nullptr;
 // Create pointers to store the latest frame and packet.
 AVFrame* AudioPlayer::s_LatestFrame = nullptr;
 AVPacket* AudioPlayer::s_LatestPacket = nullptr;
+AVPacket* AudioPlayer::s_LatestAudioPacket = nullptr;
 
 StreamMap AudioPlayer::s_StreamList = {};
 
@@ -28,6 +29,7 @@ AudioPlayer::AudioPlayer()
     : m_audio_state(std::make_shared<AudioState>())
     , m_device_info(std::make_unique<AudioDeviceInfo>())
 {
+    s_LatestAudioPacket = av_packet_alloc();
 }
 
 #pragma region Init Functions
@@ -307,10 +309,8 @@ void AudioPlayer::audio_callback(void* t_userdata, Uint8* stream, int len)
 {
     auto* userdata = static_cast<AudioState*>(t_userdata);
 
-    AVPacket* audio_packet = av_packet_alloc();
-
     while (len > 0) {
-        int result = decode_audio_packet(userdata, audio_packet);
+        int result = decode_audio_packet(userdata, s_LatestAudioPacket);
 
         if (result < 0) {
             std::memset(stream, 0, len);
@@ -318,16 +318,12 @@ void AudioPlayer::audio_callback(void* t_userdata, Uint8* stream, int len)
             break;
         }
 
-        av_packet_unref(audio_packet);
-
         init_swr_ctx(s_LatestFrame, userdata->sample_rate);
 
         if (update_audio_stream(userdata, stream, len) != 0) {
             break;
         }
     }
-
-    av_packet_free(&audio_packet);
 }
 #pragma endregion Audio Callback
 
@@ -347,6 +343,7 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
 
     if (!audio_packet) {
         SDL_UnlockMutex(PacketQueue::mutex);
+        av_packet_unref(audio_packet);
         return -1;
     }
 
@@ -354,11 +351,13 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
 
     if (response == AVERROR(EAGAIN)) {
         SDL_UnlockMutex(PacketQueue::mutex);
+        av_packet_unref(audio_packet);
         return -1;
     }
 
     if (response < 0 || response == AVERROR_EOF) {
         SDL_UnlockMutex(PacketQueue::mutex);
+        av_packet_unref(audio_packet);
         return -1;
     }
 
@@ -370,15 +369,18 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
 
     if (response == AVERROR(EAGAIN)) {
         SDL_UnlockMutex(PacketQueue::mutex);
+        av_packet_unref(audio_packet);
         return -1;
     }
 
     if (response < 0 || response == AVERROR_EOF) {
         SDL_UnlockMutex(PacketQueue::mutex);
+        av_packet_unref(audio_packet);
         return -1;
     }
 
     SDL_UnlockMutex(PacketQueue::mutex);
+    av_packet_unref(audio_packet);
     return 0;
 }
 

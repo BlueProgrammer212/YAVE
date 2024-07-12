@@ -32,6 +32,12 @@ public:
     int decode_frame(Thumbnail* data);
     int send_packet(Thumbnail* data, int retry_nb = 0);
 
+    inline void free_histogram(std::vector<int>* histogram)
+    {
+        histogram->clear();
+        histogram->shrink_to_fit();
+    }
+
     int pick_best_thumbnail(Thumbnail* data, bool use_middle_frame = false);
 
     std::optional<Thumbnail*> load_video_thumbnail(const std::string& path);
@@ -39,7 +45,7 @@ public:
 
     int compare_previous_histogram(const Histogram& new_histogram, const Histogram& old_histogram);
 
-    std::vector<int> extract_histogram(AVFrame* frame, int num_bins = 256);
+    std::unique_ptr<std::vector<int>> extract_histogram(AVFrame* frame, int num_bins = 256);
 
 private:
     AVPacket* m_av_packet;

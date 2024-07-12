@@ -22,6 +22,7 @@ include_directories(
     ${VENDOR_DIR}/SDL2_mixer/include
     ${VENDOR_DIR}/SDL2_image/include
     ${VENDOR_DIR}/implot/include
+    ${VENDOR_DIR}/SRTParser
 
     ${LOCAL_INCLUDE_DIR}
     ${LOCAL_INCLUDE_DIR}/imgui

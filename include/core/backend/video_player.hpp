@@ -11,6 +11,7 @@
 
 #include "core/application.hpp"
 #include "core/backend/audio_player.hpp"
+#include "core/backend/subtitle_player.hpp"
 #include "core/backend/packet_queue.hpp"
 
 namespace YAVE

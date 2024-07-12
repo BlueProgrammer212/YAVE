@@ -33,19 +33,20 @@ int ThumbnailLoader::decode_frame(Thumbnail* data)
     return 0;
 }
 
-std::vector<int> ThumbnailLoader::extract_histogram(AVFrame* frame, int num_bins)
+std::unique_ptr<std::vector<int>> ThumbnailLoader::extract_histogram(AVFrame* frame, int num_bins)
 {
-    std::vector<int> histogram(num_bins, 0);
+    auto histogram = std::make_unique<std::vector<int>>(num_bins, 0);
 
     // The downsample factor is directly related to the video's dimensions.
     constexpr int DOWNSAMPLE_FACTOR = 256;
 
-    // TODO: Extract the histogram in O(log n) or just O(n) time complexity
-    for (int y = 0; y < frame->height; y += DOWNSAMPLE_FACTOR) {
-        for (int x = 0; x < frame->width; x += DOWNSAMPLE_FACTOR) {
-            int pixel_intensity = frame->data[0][y * frame->linesize[0] + x];
-            histogram[pixel_intensity]++;
-        }
+    int total_pixels = (frame->height / DOWNSAMPLE_FACTOR) * (frame->width / DOWNSAMPLE_FACTOR);
+
+    for (int i = 0; i < total_pixels; ++i) {
+        int y = (i / (frame->width / DOWNSAMPLE_FACTOR)) * DOWNSAMPLE_FACTOR;
+        int x = (i % (frame->width / DOWNSAMPLE_FACTOR)) * DOWNSAMPLE_FACTOR;
+        int pixel_intensity = frame->data[0][y * frame->linesize[0] + x];
+        (*histogram)[pixel_intensity]++;
     }
 
     return histogram;
@@ -96,7 +97,6 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
 
     // Using Root Mean Square Error (RMSE) to determine the best frame.
     AVPacket* packet = av_packet_alloc();
-
     AVFrame* dummy_frame = av_frame_alloc();
     AVFrame* best_frame = av_frame_alloc();
 
@@ -105,7 +105,7 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
     constexpr int FRAME_SKIP_INTERVAL = 10;
 
     std::vector<int> last_histogram(NUM_BINS, 0);
-    int frame_skip_count = 0;
+    int frame_skip_count = -1;
 
     static int best_frame_count = 0;
 
@@ -141,27 +141,28 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
 
         auto current_histogram = extract_histogram(dummy_frame, NUM_BINS);
 
-        if (frame_skip_count == FRAME_SKIP_INTERVAL) {
-            last_histogram = current_histogram;
+        if (++frame_skip_count == 0) {
+            free_histogram(&last_histogram);
+            last_histogram = std::move(*current_histogram);
             av_packet_unref(packet);
             continue;
         }
 
-        int comparison_result = compare_previous_histogram(current_histogram, last_histogram);
+        int comparison_result = compare_previous_histogram(*current_histogram, last_histogram);
         av_packet_unref(packet);
 
         if (comparison_result != NEW_HISTOGRAM_BETTER) {
             continue;
         }
 
-        last_histogram = current_histogram;
+        free_histogram(&last_histogram);
+        last_histogram = std::move(*current_histogram);
         av_frame_ref(best_frame, dummy_frame);
 
-        if (++best_frame_count > MAX_NB_BEST_FRAMES) {
-            break;
-        }
+        break;
     }
 
+    free_histogram(&last_histogram);
     av_frame_free(&dummy_frame);
     av_packet_free(&packet);
 
@@ -172,14 +173,12 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
     double best_frame_pts_in_sec = best_frame->pts * av_q2d(data->stream_info.timebase);
 
     best_frame_count = 0;
+    av_frame_free(&best_frame);
 
     if (peek_video_frame_by_timestamp(static_cast<std::int64_t>(best_frame_pts_in_sec), data) !=
         0) {
-        av_frame_free(&best_frame);
         return -1;
     };
-
-    av_frame_free(&best_frame);
 
     return 0;
 }
@@ -226,6 +225,7 @@ int ThumbnailLoader::send_packet(Thumbnail* data, int retry_nb)
     int send_pkt_err = avcodec_send_packet(data->stream_info.av_codec_ctx, m_av_packet);
 
     if (send_pkt_err == AVERROR_EOF) {
+        av_packet_unref(m_av_packet);
         return -1;
     }
 
@@ -235,12 +235,14 @@ int ThumbnailLoader::send_packet(Thumbnail* data, int retry_nb)
     }
 
     if (send_pkt_err < 0) {
+        av_packet_unref(m_av_packet);
         return -1;
     }
 
     int recieve_frame_errcode = avcodec_receive_frame(data->stream_info.av_codec_ctx, m_av_frame);
 
     if (recieve_frame_errcode == AVERROR_EOF) {
+        av_packet_unref(m_av_packet);
         return -1;
     }
 
@@ -251,6 +253,7 @@ int ThumbnailLoader::send_packet(Thumbnail* data, int retry_nb)
     }
 
     if (recieve_frame_errcode < 0) {
+        av_packet_unref(m_av_packet);
         return -1;
     }
 

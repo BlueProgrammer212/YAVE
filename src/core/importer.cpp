@@ -244,7 +244,7 @@ void Importer::init_thumbnail_texture(unsigned int* texture_id)
 
 void Importer::refresh_thumbnail_textures(const Thumbnail thumbnail, const std::string& url)
 {
-    int file_index = find_file_by_url(url);
+    int64_t file_index = find_file_by_url(url);
 
     if (file_index < 0) {
         std::cout << "Failed to find the file by its url.\n";
