@@ -1,6 +1,5 @@
 #include "core/application.hpp"
 
-#include "core/backend/subtitle_player.hpp"
 #include "core/debugger.hpp"
 #include "core/importer.hpp"
 #include "core/scene_editor.hpp"
@@ -170,8 +169,8 @@ int Application::init()
 
     std::string glsl_version = configure_sdl();
 
-    auto window_flags = static_cast<SDL_WindowFlags>(
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    auto window_flags =
+        static_cast<SDL_WindowFlags>(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 
     window = SDL_CreateWindow("YAVE (Yet Another Video Editor)", SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED, 1280, 720, window_flags);
@@ -264,8 +263,8 @@ void Application::refresh_timeline_waveform()
     auto* dest_segment_index = static_cast<int*>(m_event.user.data2);
 
     m_tools->timeline->update_segment_waveform(waveform_data->audio_data, *dest_segment_index);
-
     m_waveform_loader->free_waveform(waveform_data);
+
     delete dest_segment_index;
 }
 

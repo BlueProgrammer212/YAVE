@@ -131,7 +131,6 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
     const auto num_samples = s_LatestFrame->nb_samples;
     const auto num_channels = s_LatestFrame->channels;
     const auto out_samples = swr_get_out_samples(s_Resampler_Context, num_samples);
-
     const AVSampleFormat sample_format = userdata->av_codec_ctx->sample_fmt;
 
     auto buffer_size =
@@ -167,12 +166,6 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
         s_AudioBufferInfo->sample_rate = s_LatestFrame->sample_rate;
         s_AudioBufferInfo->buffer_index = 0;
 
-        constexpr static int DOWNSAMPLE_FACTOR = 1024;
-
-        for (int i = 0; i < num_samples; i += DOWNSAMPLE_FACTOR) {
-            s_AudioBufferInfo->audio_data.push_back(*s_LatestFrame->data[0]);
-        }
-
         std::memcpy(sdl_stream, s_LatestFrame->data[0], buffer_size);
         len = 0;
 
@@ -186,8 +179,8 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
 
     resample_audio(s_LatestFrame, resampling_data);
 
-    if (synchronize_audio(userdata, reinterpret_cast<float*>(s_LatestFrame->data[0]), num_samples,
-            &buffer_size) != 0) {
+    if (synchronize_audio(userdata, resampled_audio_buffer.data(), num_samples, &buffer_size) !=
+        0) {
         return -1;
     };
 
@@ -205,12 +198,6 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
     s_AudioBufferInfo->buffer_size = buffer_size;
     s_AudioBufferInfo->sample_rate = s_LatestFrame->sample_rate;
     s_AudioBufferInfo->buffer_index = 0;
-
-    constexpr static int DOWNSAMPLE_FACTOR = 1024;
-
-    for (int i = 0; i < resampled_audio_buffer.size(); i += DOWNSAMPLE_FACTOR) {
-        s_AudioBufferInfo->audio_data.push_back(resampled_audio_buffer[i]);
-    }
 
     std::memcpy(sdl_stream, resampled_audio_buffer.data(), buffer_size);
     len = 0;

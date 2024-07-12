@@ -168,7 +168,6 @@ struct AudioBufferInfo {
     int buffer_size = 0;
     int sample_rate = 44100;
     int buffer_index = 0;
-    std::vector<float> audio_data;
 };
 
 /**

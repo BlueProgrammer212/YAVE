@@ -2,10 +2,11 @@
 
 #include "application.hpp"
 #include "color.hpp"
+#include "core/backend/subtitle_player.hpp"
 
 namespace YAVE
 {
-constexpr std::size_t SUBTITLES_BUFFER_SIZE = 16384; 
+constexpr std::size_t SUBTITLES_BUFFER_SIZE = 16384;
 
 struct Transition;
 
@@ -20,7 +21,7 @@ struct Transition {
 class SceneEditor
 {
 public:
-    SceneEditor() = default;
+    SceneEditor();
     ~SceneEditor(){};
 
     void init();
@@ -36,5 +37,6 @@ private:
 
     TransitionCache m_transition_map;
     SubtitleBuffer m_subtitle_input_buffer;
+    std::unique_ptr<SubtitlePlayer> m_subtitle_player;
 };
 } // namespace YAVE

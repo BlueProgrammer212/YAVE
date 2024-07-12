@@ -369,7 +369,7 @@ std::optional<Thumbnail*> ThumbnailLoader::load_video_thumbnail(const std::strin
     m_av_frame = av_frame_alloc();
     m_av_packet = av_packet_alloc();
 
-    int result = pick_best_thumbnail(data, false);
+    int result = pick_best_thumbnail(data, true);
 
     if (result < 0 || send_packet(data) != 0) {
         return std::nullopt;

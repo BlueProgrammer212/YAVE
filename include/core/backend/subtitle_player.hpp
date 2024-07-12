@@ -8,6 +8,7 @@ namespace YAVE
 class SubtitlePlayer
 {
 public:
+    SubtitlePlayer();
     SubtitlePlayer(const std::string& input_file_path);
     ~SubtitlePlayer();
 

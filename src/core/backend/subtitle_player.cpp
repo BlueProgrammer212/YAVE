@@ -2,6 +2,8 @@
 
 namespace YAVE
 {
+SubtitlePlayer::SubtitlePlayer() {}
+
 SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
     : m_parser_factory(std::make_unique<SubtitleParserFactory>(input_file_path.c_str()))
     , m_av_packet(nullptr)

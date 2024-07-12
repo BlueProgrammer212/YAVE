@@ -422,8 +422,7 @@ double VideoPlayer::calculateReferenceClock()
 {
     double ref_clock = s_AudioInternalClock;
 
-    const auto& [channel_nb, buffer_size, sample_rate, buffer_index, audio_data] =
-        *s_AudioBufferInfo;
+    const auto& [channel_nb, buffer_size, sample_rate, buffer_index] = *s_AudioBufferInfo;
 
     int hw_buf_size = buffer_size - buffer_index;
     int sample_bytes = channel_nb * sizeof(float);

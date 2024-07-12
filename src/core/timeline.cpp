@@ -147,6 +147,13 @@ int Timeline::update_segment_waveform(const std::vector<float>& audio_data, int 
         return -1;
     }
 
+    // Check if the waveform is too long.
+    constexpr int WAVEFORM_LENGTH_LIMIT = 44100 * 60;
+
+    if (audio_data.size() > WAVEFORM_LENGTH_LIMIT) {
+        return -1;
+    }
+
     auto destination_segment = m_segment_array[segment_index];
 
     // Copy the audio data from the waveform loader to the segment.
@@ -332,11 +339,6 @@ void Timeline::render_waveform(
     }
 
     static auto audio_stream = video_processor->s_StreamList.at("Audio");
-
-    if (AudioPlayer::s_AudioBufferInfo == nullptr ||
-        AudioPlayer::s_AudioBufferInfo->audio_data.empty()) {
-        return;
-    }
 
     constexpr static std::array<ImPlotStyleVar_, 4> style_var_set = { ImPlotStyleVar_PlotPadding,
         ImPlotStyleVar_LabelPadding, ImPlotStyleVar_LegendPadding, ImPlotStyleVar_FitPadding };

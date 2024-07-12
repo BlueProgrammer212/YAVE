@@ -2,7 +2,10 @@
 
 namespace YAVE
 {
-void SceneEditor::init() {}
+void SceneEditor::init()
+{
+    m_subtitle_player = std::make_unique<SubtitlePlayer>();
+}
 
 void SceneEditor::update() {}
 

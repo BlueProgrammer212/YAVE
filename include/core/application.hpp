@@ -27,7 +27,6 @@ class Timeline;
 class VideoPlayer;
 class ThumbnailLoader;
 class WaveformLoader;
-class SubtitlePlayer;
 
 struct UIStyleConfig {
     UIStyleConfig(float t_font_size, float default_video_zoom)
@@ -103,7 +102,6 @@ private:
     std::shared_ptr<VideoPlayer> m_video_processor;
     std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
     std::unique_ptr<WaveformLoader> m_waveform_loader;
-    std::unique_ptr<SubtitlePlayer> m_subtitle_player;
 
     UIStyleConfig m_style_config;
 
