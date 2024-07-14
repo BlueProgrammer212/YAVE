@@ -36,39 +36,33 @@ void VideoPlayer::add_stream(StreamInfoPtr stream_ptr, std::string name)
     s_StreamList.insert({ stream_type, std::move(stream_ptr) });
 }
 
+int VideoPlayer::process_stream(
+    const AVStream* stream, const AVCodec* av_codec, const StreamID stream_index)
+{
+    auto stream_info = std::make_shared<StreamInfo>();
+
+    stream_info->timebase = stream->time_base;
+    stream_info->av_codec = const_cast<AVCodec*>(av_codec);
+    stream_info->av_codec_params = stream->codecpar;
+    stream_info->stream_index = stream_index;
+
+    if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        stream_info->width = stream->codecpar->width;
+        stream_info->height = stream->codecpar->height;
+        add_stream(stream_info, "Video");
+    }
+
+    if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+        add_stream(stream_info, "Audio");
+    }
+
+    return 0;
+}
+
 int VideoPlayer::find_streams()
 {
     auto& av_format_ctx = m_video_state->av_format_ctx;
-
-    for (std::uint32_t i = 0; i < av_format_ctx->nb_streams; ++i) {
-        auto& stream = av_format_ctx->streams[i];
-
-        auto* av_codec_params = stream->codecpar;
-        AVCodec* av_codec = avcodec_find_decoder(av_codec_params->codec_id);
-
-        if (!av_codec) {
-            continue;
-        }
-
-        auto stream_info = std::make_shared<StreamInfo>();
-
-        stream_info->timebase = stream->time_base;
-        stream_info->av_codec = av_codec;
-        stream_info->av_codec_params = av_codec_params;
-        stream_info->stream_index = i;
-
-        if (av_codec_params->codec_type == AVMEDIA_TYPE_VIDEO) {
-            stream_info->width = av_codec_params->width;
-            stream_info->height = av_codec_params->height;
-            add_stream(stream_info, "Video");
-            continue;
-        }
-
-        if (av_codec_params->codec_type == AVMEDIA_TYPE_AUDIO) {
-            add_stream(stream_info, "Audio");
-            continue;
-        }
-    }
+    m_loader->find_available_codecs(&m_video_state->av_format_ctx, &VideoPlayer::process_stream);
 
     return 0;
 }
@@ -116,7 +110,7 @@ int VideoPlayer::init_sws_scaler_ctx(VideoState* video_state)
     auto& height = video_state->dimensions.y;
 
     // Convert planar YUV 4:2:0 pixel format to packed RGB 8:8:8 pixel format
-    // with bilinear rescaling algorithm.
+    // with bicubic rescaling algorithm.
     sws_scaler_ctx = sws_getContext(width, height, stream_info->av_codec_ctx->pix_fmt, width,
         height, AV_PIX_FMT_RGB0, SWS_BICUBIC, nullptr, nullptr, nullptr);
 
@@ -212,17 +206,10 @@ int VideoPlayer::open_video(const char* filename)
         m_audio_state->delta_accum = 0;
     }
 
-    m_video_state->av_format_ctx = avformat_alloc_context();
-
-    if (!av_format_ctx) {
-        std::cout << "Couldn't allocate memory for the format context.\n";
+    if (!m_loader->allocate_format_context(&m_video_state->av_format_ctx, std::string(filename))) {
+        std::cout << "Failed to allocate memory for the format context.\n";
         return -1;
-    }
-
-    if (avformat_open_input(&av_format_ctx, filename, nullptr, nullptr) != 0) {
-        std::cout << "Failed to open the file: " << filename << "\n";
-        return -1;
-    }
+    };
 
     opened_file = filename;
     m_duration = av_format_ctx->duration;
@@ -298,7 +285,7 @@ int VideoPlayer::play_video(AVRational* timebase)
             return first_audio_frame.value()->nb_samples;
         }
 
-        return DEFAULT_LOW_LATENCY_SAMPLES_BUFFER_SIZE;
+        return DEFAULT_SAMPLES_BUFFER_SIZE;
     }();
 
     // After obtaining the first frame, it's important to reset the timestamp.
@@ -315,8 +302,7 @@ int VideoPlayer::play_video(AVRational* timebase)
 
     // Start the decoding and video threads.
     m_video_tid = SDL_CreateThread(&video_callback, "Video Thread", m_video_state.get());
-
-    m_decoding_tid = SDL_CreateThread(&enqueue_frames, "Decoding Thread", m_video_state.get());
+    m_decoding_tid = SDL_CreateThread(&enqueue_packets, "Decoding Thread", m_video_state.get());
 
     return 0;
 }
@@ -326,15 +312,13 @@ std::optional<AVFrame*> VideoPlayer::get_first_audio_frame(
 {
     constexpr int MAX_NUMBER_OF_ATTEMPTS = 1000;
 
-    int response;
-
     if (retry_count > MAX_NUMBER_OF_ATTEMPTS) {
         return std::nullopt;
     }
 
     static const auto& stream_info = s_StreamList.at("Audio");
 
-    response = av_read_frame(m_video_state->av_format_ctx, dummy_packet);
+    int response = av_read_frame(m_video_state->av_format_ctx, dummy_packet);
 
     if (response < 0) {
         goto repeat;
@@ -418,9 +402,9 @@ unsigned int VideoPlayer::update_framebuffer(Uint32 interval, void* user_data)
 
 #pragma region Video Synchronization
 
-double VideoPlayer::calculateReferenceClock()
+double VideoPlayer::calculate_reference_clock()
 {
-    double ref_clock = s_AudioInternalClock;
+    double ref_clock = s_ClockNetwork->audio_internal_clock;
 
     const auto& [channel_nb, buffer_size, sample_rate, buffer_index] = *s_AudioBufferInfo;
 
@@ -435,7 +419,7 @@ double VideoPlayer::calculateReferenceClock()
     return ref_clock;
 }
 
-double VideoPlayer::calculateActualDelay(VideoState* video_state, double& frame_timer)
+double VideoPlayer::calculate_actual_delay(VideoState* video_state, double& frame_timer)
 {
     double delay = video_state->pts - video_state->last_pts;
 
@@ -448,7 +432,7 @@ double VideoPlayer::calculateActualDelay(VideoState* video_state, double& frame_
 
     const double current_time = av_gettime() / static_cast<double>(AV_TIME_BASE);
 
-    const double ref_clock = calculateReferenceClock();
+    const double ref_clock = calculate_reference_clock();
     const double diff = video_state->pts - ref_clock;
 
     const double sync_threshold = std::max(delay, SYNC_THRESHOLD);
@@ -468,8 +452,10 @@ double VideoPlayer::calculateActualDelay(VideoState* video_state, double& frame_
 
 void VideoPlayer::synchronize_video(VideoState* video_state)
 {
-    const auto& timebase = s_StreamList.at("Video")->timebase;
     static double actual_delay = 0.0;
+    const auto& timebase = s_StreamList.at("Video")->timebase;
+    double& video_clock = s_ClockNetwork->video_internal_clock;
+    double frame_delay = av_q2d(timebase);
 
     if (video_state->is_first_frame) {
         // When the input is changed, update the frame timer.
@@ -478,34 +464,33 @@ void VideoPlayer::synchronize_video(VideoState* video_state)
     }
 
     // Adjust frame_timer if video is paused
-    double pauseElapsedTime = s_PauseEndTime - s_PauseStartTime;
-    video_state->frame_timer -= pauseElapsedTime;
+    double pause_elapsed_time = s_ClockNetwork->pause_end_time - s_ClockNetwork->pause_start_time;
+    video_state->frame_timer -= pause_elapsed_time;
 
-    s_PauseStartTime = 0.0;
-    s_PauseEndTime = 0.0;
+    s_ClockNetwork->pause_start_time = 0.0;
+    s_ClockNetwork->pause_end_time = 0.0;
 
-    double frame_delay = av_q2d(timebase);
     frame_delay += s_LatestFrame->repeat_pict * (frame_delay * 0.5);
 
     if (video_state->pts != 0) {
-        s_VideoInternalClock = video_state->pts;
+        video_clock = video_state->pts;
     } else {
-        video_state->pts = s_VideoInternalClock;
+        video_state->pts = video_clock;
     }
 
-    s_VideoInternalClock += frame_delay;
+    s_ClockNetwork->video_internal_clock += frame_delay;
 
-    actual_delay = calculateActualDelay(video_state, video_state->frame_timer);
+    actual_delay = calculate_actual_delay(video_state, video_state->frame_timer);
     SDL_Delay(static_cast<Uint32>(actual_delay * 1000 + 0.5));
 }
 
 void VideoPlayer::update_pts(VideoState* state, AVPacket* packet)
 {
     const auto& time_base = s_StreamList.at("Video")->timebase;
-    bool is_dts_avail = packet->dts != AV_NOPTS_VALUE;
+    bool is_dts_available = packet->dts != AV_NOPTS_VALUE;
 
     // Get the PTS of the current video frame.
-    state->pts = (is_dts_avail ? static_cast<double>(s_LatestFrame->pts) : 0);
+    state->pts = (is_dts_available ? static_cast<double>(s_LatestFrame->pts) : 0);
 
     if (is_rational_valid(time_base)) {
         state->pts *= av_q2d(time_base);
@@ -585,7 +570,7 @@ int VideoPlayer::decode_video_frame(VideoState* video_state, AVPacket* video_pac
     return 0;
 }
 
-int VideoPlayer::enqueue_frames(void* data)
+int VideoPlayer::enqueue_packets(void* data)
 {
     auto* video_state = static_cast<VideoState*>(data);
 
@@ -667,8 +652,8 @@ int VideoPlayer::seek_frame(float seconds)
         avcodec_flush_buffers(stream_info->av_codec_ctx);
     }
 
-    s_VideoInternalClock = seconds;
-    s_AudioInternalClock = s_VideoInternalClock;
+    s_ClockNetwork->video_internal_clock = seconds;
+    s_ClockNetwork->audio_internal_clock = seconds;
 
     m_audio_state->audio_diff_avg_count = 0;
     m_audio_state->delta_accum = 0.0;
@@ -709,7 +694,7 @@ void VideoPlayer::free_ffmpeg()
 
     av_frame_free(&s_LatestFrame);
     av_packet_free(&s_LatestPacket);
-    av_packet_free(&s_LatestAudioPacket);
+    av_packet_free(&m_audio_state->latest_audio_packet);
 
     if (m_hw_device_ctx) {
         // Unreference the hardware device context
@@ -762,21 +747,16 @@ void VideoPlayer::reset_video_state()
     s_AudioPacketQueue->clear();
 
     // Reset the clock network.
-    s_VideoInternalClock = 0.0;
-    s_AudioInternalClock = 0.0;
+    s_ClockNetwork->video_internal_clock = 0.0;
+    s_ClockNetwork->audio_internal_clock = 0.0;
     m_video_state->frame_timer = 0.0;
     m_video_state->is_first_frame = true;
 
-    // Reset the timestamps
     m_video_state->pts = 0.0;
     m_video_state->last_delay = 40e-3;
     m_video_state->last_pts = 0.0;
 
-    // Reset audio buffer information
-    s_AudioBufferInfo->buffer_index = 0;
-    s_AudioBufferInfo->buffer_size = 0;
-    s_AudioBufferInfo->channel_nb = 2;
-    s_AudioBufferInfo->sample_rate = 44100;
+    reset_audio_buffer_info();
 
     // Reset the dimensions of the video.
     m_video_state->dimensions = VideoDimension(640, 360);

@@ -383,7 +383,7 @@ void Application::handle_zooming(float delta_time)
     }
 }
 
-const ImVec2 Application::maintain_video_aspect_ratio()
+const ImVec2 Application::maintain_video_aspect_ratio(ImVec2* display_min)
 {
     static ImVec2 image_position;
     auto& [width, height] = m_video_size;
@@ -407,12 +407,24 @@ const ImVec2 Application::maintain_video_aspect_ratio()
     display_size *= m_style_config.current_zoom_factor;
 
     // Recalculate the image position after zooming.
-    image_position = ImGui::GetCursorScreenPos();
-    image_position.x += (content_region.x - display_size.x) * 0.5f;
-    image_position.y += (content_region.y - display_size.y) * 0.5f;
-    ImGui::SetCursorScreenPos(image_position);
+    *display_min = ImGui::GetCursorScreenPos();
+    display_min->x += (content_region.x - display_size.x) * 0.5f;
+    display_min->y += (content_region.y - display_size.y) * 0.5f;
 
     return display_size;
+}
+
+void Application::render_subtitles(const ImVec2& min, const ImVec2& max)
+{
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const std::string sample_subtitle_text = "Hello World!";
+    const ImVec2 text_size = ImGui::CalcTextSize(sample_subtitle_text.c_str());
+
+    auto subtitle_display_min = ImVec2(0, 0);
+    subtitle_display_min.x = (max.x + text_size.x) * 0.5f;
+    subtitle_display_min.y = (max.y + text_size.y) * 0.9f;
+
+    draw_list->AddText(subtitle_display_min, IM_COL32_WHITE, sample_subtitle_text.c_str());
 }
 
 void Application::render_video_preview()
@@ -422,10 +434,16 @@ void Application::render_video_preview()
 
     ImGui::Begin("Video Preview", nullptr, VIDEO_PREVIEW_FLAGS);
 
-    const ImVec2& display_size = maintain_video_aspect_ratio();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    ImVec2 display_min;
+
+    const ImVec2& display_max = maintain_video_aspect_ratio(&display_min);
     const auto& tex_id_ptr = static_cast<uintptr_t>(m_frame_tex_id);
 
-    ImGui::Image(reinterpret_cast<ImTextureID>(tex_id_ptr), display_size);
+    draw_list->AddImage(
+        reinterpret_cast<ImTextureID>(tex_id_ptr), display_min, display_min + display_max);
+    render_subtitles(display_min, display_min + display_max);
 
     ImGui::End();
 }

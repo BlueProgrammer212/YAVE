@@ -11,13 +11,9 @@ int ThumbnailLoader::decode_frame(Thumbnail* data)
 {
     for (int response = 0;;) {
         response = av_read_frame(data->av_format_context, m_av_packet);
+        bool is_video_packet = m_av_packet->stream_index == data->stream_info.stream_index;
 
-        if (m_av_packet->stream_index != data->stream_info.stream_index) {
-            av_packet_unref(m_av_packet);
-            continue;
-        }
-
-        if (response == AVERROR(EAGAIN)) {
+        if (!is_video_packet || response == AVERROR(EAGAIN)) {
             av_packet_unref(m_av_packet);
             continue;
         }
@@ -52,20 +48,24 @@ std::unique_ptr<std::vector<int>> ThumbnailLoader::extract_histogram(AVFrame* fr
     return histogram;
 }
 
+[[nodiscard]] double ThumbnailLoader::calculate_total_squared_diff(
+    const std::vector<int>& new_histogram, const std::vector<int>& old_histogram)
+{
+    return std::accumulate(new_histogram.begin(), new_histogram.end(), 0.0,
+        [&old_histogram, i = 0](double sum, double new_value) mutable {
+            const double delta_pixel_intensity = new_value - old_histogram[i++];
+            return sum + std::pow(delta_pixel_intensity, 2.0);
+        });
+}
+
 int ThumbnailLoader::compare_previous_histogram(
     const std::vector<int>& new_histogram, const std::vector<int>& old_histogram)
 {
-    double accumulated_squared_diff = 0.0;
+    constexpr double THRESHOLD = 1.75;
 
-    for (size_t i = 0; i < new_histogram.size(); ++i) {
-        double delta_pixel_intensity = new_histogram[i] - old_histogram[i];
-        accumulated_squared_diff += std::pow(delta_pixel_intensity, 2.0);
-    }
-
+    double accumulated_squared_diff = calculate_total_squared_diff(new_histogram, old_histogram);
     const double mean = accumulated_squared_diff / new_histogram.size();
     const double RMSE = std::sqrt(mean);
-
-    constexpr double THRESHOLD = 1.75;
 
     if (RMSE < THRESHOLD) {
         return NEW_HISTOGRAM_BETTER;
@@ -321,11 +321,7 @@ int ThumbnailLoader::open_file(std::string filename, Thumbnail* userdata)
     int open_ret =
         avformat_open_input(&userdata->av_format_context, filename.c_str(), nullptr, nullptr);
 
-    if (open_ret != 0) {
-        return -1;
-    }
-
-    if (find_streams(userdata->av_format_context, userdata) != 0) {
+    if (open_ret != 0 || find_streams(userdata->av_format_context, userdata) != 0) {
         return -1;
     };
 

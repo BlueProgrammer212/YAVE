@@ -14,6 +14,9 @@ public:
 
     static int callback(void* userdata);
 
+    [[nodiscard]] const std::unique_ptr<SubtitleParserFactory> open_srt_file(
+        const std::string& input_file_path);
+
     /**
      * @brief Adds a .srt file in the project directory.
      * @param out_srt_filename

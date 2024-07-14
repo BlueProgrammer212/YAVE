@@ -8,32 +8,18 @@ namespace YAVE
 Timeline::Timeline()
     : m_draw_list(nullptr)
     , m_timestamp("00:00:00")
+    , m_segment_style{ Color::VIDEO_SEGMENT_COLOR, 1.0f, 7.5f, ImVec2(5.0f, 5.0f) }
+    , m_track_style{ ImVec2(150.0f, 75.0f), ImVec2(5.0f, 5.0f), 0.0f }
+    , m_playhead_prop{ 1.0f, 0.0f, ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f) }
 {
-    // clang-format off
-  m_segment_style = SegmentStyle{
-    Color::VIDEO_SEGMENT_COLOR, 1.0f, 7.5f,
-    ImVec2(5.0f, 5.0f)
-  };
-
-  m_track_style = TrackStyle{
-    ImVec2(150.0f, 75.0f), 
-    ImVec2(5.0f, 5.0f), 0.0f
-  };
-
-  m_playhead_prop = PlayheadProperties{
-    1.0f, 0.0f, ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f)
-  };
-    // clang-format on
 }
 
 Timeline::~Timeline() {}
 
 void Timeline::init()
 {
-    // Add test segments & tracks.
     for (unsigned int i = 1; i < NUMBER_OF_TRACKS + 1; ++i) {
-        std::string track_label = "Track " + std::to_string(i);
-        m_track_array.push_back(track_label);
+        m_track_array.emplace_back("Track " + std::to_string(i));
     }
 }
 
@@ -81,7 +67,7 @@ void Timeline::render()
 
     m_draw_list = ImGui::GetWindowDrawList();
 
-    auto& video_flags = video_processor->getFlags();
+    auto& video_flags = video_processor->get_flags();
 
     if (ImGui::Button(~video_flags & VideoFlags::IS_PAUSED ? "Pause" : "Resume")) {
         SDL_Event pause_event;
@@ -110,14 +96,11 @@ void Timeline::render()
 
     m_window_size = ImGui::GetWindowSize();
 
-    // clang-format off
-  static const float child_window_proportion = 0.755f;
-  const auto& child_window_size = ImVec2(0.0f, m_window_size.y * child_window_proportion);
+    static const float child_window_proportion = 0.755f;
+    const auto& child_window_size = ImVec2(0.0f, m_window_size.y * child_window_proportion);
 
-  ImGui::BeginChild("###scrolling", child_window_size, false,
-                    ImGuiWindowFlags_AlwaysVerticalScrollbar |
-                    ImGuiWindowFlags_AlwaysHorizontalScrollbar);
-    // clang-format on
+    ImGui::BeginChild("###scrolling", child_window_size, false,
+        ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
 
     m_child_window_size = ImGui::GetWindowSize();
 
@@ -143,35 +126,23 @@ void Timeline::render()
 
 int Timeline::update_segment_waveform(const std::vector<float>& audio_data, int segment_index)
 {
-    if (segment_index < 0 && segment_index > m_segment_array.size()) {
-        return -1;
-    }
-
-    // Check if the waveform is too long.
     constexpr int WAVEFORM_LENGTH_LIMIT = 44100 * 60;
 
-    if (audio_data.size() > WAVEFORM_LENGTH_LIMIT) {
+    if (segment_index < 0 && segment_index > m_segment_array.size() ||
+        audio_data.size() > WAVEFORM_LENGTH_LIMIT) {
         return -1;
     }
 
-    auto destination_segment = m_segment_array[segment_index];
+    auto& dest_waveform = m_segment_array[segment_index]->waveform_data;
 
-    // Copy the audio data from the waveform loader to the segment.
-    destination_segment->waveform_data = audio_data;
+    std::vector<float> norm_audio_waveform(audio_data.size());
+    WaveformLoader::normalize_audio_data(audio_data, &norm_audio_waveform, 1.0f);
+
+    // Copy the normalized audio waveform to the segment sample array.
+    dest_waveform.resize(norm_audio_waveform.size());
+    std::copy(norm_audio_waveform.begin(), norm_audio_waveform.end(), dest_waveform.begin());
 
     return 0;
-}
-
-void Timeline::add_segment(const Segment& segment)
-{
-    auto new_segment = std::make_unique<Segment>();
-    new_segment->track_position = segment.track_position;
-    new_segment->name = segment.name;
-    new_segment->start_time = segment.start_time;
-    new_segment->end_time = segment.end_time;
-    new_segment->thumbnail_texture_id = segment.thumbnail_texture_id;
-    new_segment->thumbnail_tex_dimensions = segment.thumbnail_tex_dimensions;
-    m_segment_array.push_back(std::move(new_segment));
 }
 
 void Timeline::maintain_thumbnail_aspect_ratio(
@@ -191,8 +162,7 @@ void Timeline::maintain_thumbnail_aspect_ratio(
         max.y = content_region.y;
     }
 
-    min.x += (content_region.x - max.x) * 0.5f;
-    min.y += (content_region.y - max.y) * 0.5f;
+    min += (content_region - max) / 2;
 }
 
 void Timeline::render_segment_thumbnail(
@@ -266,6 +236,7 @@ void Timeline::render_segments()
 
 void Timeline::render_tracks()
 {
+    static constexpr float TRACK_BOTTOM_MARGIN = 2.0f;
     float scroll_x = ImGui::GetScrollX();
 
     for (std::uint32_t i = 0; i < m_track_array.size(); ++i) {
@@ -274,26 +245,20 @@ void Timeline::render_tracks()
         ImVec2 min = ImGui::GetCursorScreenPos();
         min.x += scroll_x;
         min.y += i * m_track_style.size.y;
-
-        // Add a little bit of y-offset between tracks.
-        static const float bottom_margin = 2.0f;
-        min.y += i > 0 ? bottom_margin * i : 0.0f;
+        min.y += i > 0 ? TRACK_BOTTOM_MARGIN * i : 0.0f;
 
         const ImVec2 max = min + m_track_style.size;
 
         m_draw_list->AddRectFilled(min, max, Color::TRACK_COLOR, m_track_style.border_radius);
 
         m_draw_list->ChannelsSetCurrent(TimelineLayers::TRACK_BACKGROUND_LAYER);
-
         // Render the track background.
-        const ImVec2 background_min = ImVec2(max.x, min.y - (i > 0) * bottom_margin * i);
-
+        const ImVec2 background_min = ImVec2(max.x, min.y - (i > 0) * TRACK_BOTTOM_MARGIN * i);
         const auto background_max = min + ImVec2(m_window_size.x + scroll_x, m_track_style.size.y);
 
         ImU32 bg_color = i % 2 == 0 ? Color::SECONDARY : Color::PRIMARY;
 
         m_draw_list->AddRectFilled(background_min, background_max, bg_color);
-
         m_draw_list->ChannelsSetCurrent(TimelineLayers::TRACK_LAYER);
 
         // Render the track label.

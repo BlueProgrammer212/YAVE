@@ -1,29 +1,9 @@
 #pragma once
 
 #include <SDL.h>
-#include <algorithm>
-#include <array>
-#include <functional>
-#include <iostream>
-#include <memory>
 #include <thread>
-#include <unordered_map>
-#include <vector>
 
-#ifdef __cplusplus
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavfilter/avfilter.h>
-#include <libavformat/avformat.h>
-#include <libavutil/avutil.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/opt.h>
-#include <libavutil/time.h>
-#include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
-}
-#endif
+#include "core/backend/video_loader.hpp"
 
 #include <SDL_mixer.h>
 #include <SDL_mutex.h>
@@ -34,36 +14,21 @@ namespace YAVE
 struct StreamInfo;
 class PacketQueue;
 
-constexpr int DEFAULT_LOW_LATENCY_SAMPLES_BUFFER_SIZE = 1024;
-constexpr std::size_t NUM_OF_STREAMS = 2;
+constexpr int DEFAULT_SAMPLES_BUFFER_SIZE = 1024;
 
 // A/V Synchronization Constants
 constexpr int SAMPLE_CORRECTION_PERCENT_MAX = 10;
-constexpr double AUDIO_DIFF_AVG_NB = 20.0;
-
+constexpr double AV_DIFFERENCE_AVG_COEF = 0.99;
+constexpr double AV_DIFFERENCE_COUNT = 20.0;
 constexpr double SYNC_THRESHOLD = 0.045;
 constexpr double NOSYNC_THRESHOLD = 1.0;
 
-constexpr double AUDIO_DIFF_AVG_COEF = 0.99;
-
 /**
  * @typedef SampleRate
- * @brief The first element is for the input samples. While
- * the second element represents the output samples.
+ * @brief The first element is for the input sample rate. While
+ * the second element represents the output sample rate.
  */
 using SampleRate = std::pair<int, int>;
-
-/**
- * @typedef StreamInfoPtr
- * @brief An alias for std::shared_ptr<StreamInfo>
- */
-using StreamInfoPtr = std::shared_ptr<StreamInfo>;
-
-/**
- * @typedef StreamMap
- * @brief A data type for the stream info cache.
- */
-using StreamMap = std::unordered_map<std::string, StreamInfoPtr>;
 
 #pragma region Audio Flags
 
@@ -129,33 +94,6 @@ inline AudioFlags operator~(AudioFlags lhs)
 
 #pragma endregion Audio Flags
 
-#pragma region Stream
-
-/**
- * @struct Codec
- * @brief A data type that includes the codec's context, parameters, and the codec itself.
- */
-struct Codec {
-    virtual ~Codec() = default;
-
-    AVCodec* av_codec = nullptr;
-    AVCodecParameters* av_codec_params = nullptr;
-    AVCodecContext* av_codec_ctx = nullptr;
-};
-
-/**
- * @struct StreamInfo
- * @brief A data type that contains all the relevant information of a stream.
- */
-struct StreamInfo : public Codec {
-    AVRational timebase = AVRational{ 0, 0 };
-    int stream_index = -1;
-    int width = -1;
-    int height = -1;
-};
-
-#pragma endregion Stream
-
 struct AudioResamplingState {
     std::vector<float>* audio_buffer = nullptr;
     int num_samples = 0;
@@ -180,20 +118,12 @@ struct AudioDeviceInfo {
     SDL_AudioSpec wanted_spec;
 };
 
-#pragma region Error Handlers
-/**
- * @brief Converts FFmpeg error codes to a string.
- * @param errnum The FFmpeg error code.
- * @return The error string.
- */
-[[nodiscard]] inline static std::string av_error_to_string(int errnum)
-{
-    std::array<char, AV_ERROR_MAX_STRING_SIZE> buffer;
-    av_strerror(errnum, buffer.data(), AV_ERROR_MAX_STRING_SIZE);
-    return std::string(buffer.data());
-}
-
-#pragma endregion Error Handlers
+struct ClockNetwork {
+    double video_internal_clock = 0.0;
+    double audio_internal_clock = 0.0;
+    double pause_start_time = 0.0;
+    double pause_end_time = 0.0;
+};
 
 #pragma region Audio Player
 
@@ -207,20 +137,14 @@ public:
 
     /**
      * @struct AudioState
-     * @brief The audio player's data that wil be passed to the audio callback.
+     * @brief The audio player's data that will be passed to the audio callback.
      */
     struct AudioState {
         AVCodecContext* av_codec_ctx = nullptr;
-
-        // Audio flags
+        AVPacket* latest_audio_packet = nullptr;
         AudioFlags flags = AudioFlags::NONE;
-
-        // Output and input sample rate (44.1kHz by default)
         SampleRate sample_rate;
-
         double pts = 0;
-
-        // Sample Correction
         double delta_accum = 0;
         double audio_diff_avg_count = 0;
     };
@@ -286,11 +210,11 @@ public:
         SDL_PauseAudioDevice(m_device_info->device_id, should_resume);
 
         if (should_resume) {
-            s_PauseEndTime = av_gettime() / static_cast<double>(AV_TIME_BASE);
+            s_ClockNetwork->pause_end_time = av_gettime() / static_cast<double>(AV_TIME_BASE);
             return;
         }
 
-        s_PauseStartTime = av_gettime() / static_cast<double>(AV_TIME_BASE);
+        s_ClockNetwork->pause_start_time = av_gettime() / static_cast<double>(AV_TIME_BASE);
     }
 
     [[nodiscard]] inline auto& get_packet_queue()
@@ -300,12 +224,12 @@ public:
 
     [[nodiscard]] static inline const double& get_video_internal_clock()
     {
-        return s_VideoInternalClock;
+        return s_ClockNetwork->video_internal_clock;
     }
 
     [[nodiscard]] static inline const double& get_audio_internal_clock()
     {
-        return s_AudioInternalClock;
+        return s_ClockNetwork->audio_internal_clock;
     }
 
     [[nodiscard]] int guess_correct_buffer_size(const StreamInfoPtr& stream_info);
@@ -353,17 +277,20 @@ protected:
 protected:
     static AVFrame* s_LatestFrame;
     static AVPacket* s_LatestPacket;
-    static AVPacket* s_LatestAudioPacket;
 
 protected:
-    static double s_PauseStartTime;
-    static double s_PauseEndTime;
-
-    static double s_VideoInternalClock;
-    static double s_AudioInternalClock;
-
+    static std::unique_ptr<ClockNetwork> s_ClockNetwork;
     std::unique_ptr<AudioDeviceInfo> m_device_info;
     std::shared_ptr<AudioState> m_audio_state;
+
+    inline void reset_audio_buffer_info()
+    {
+        // Reset audio buffer information
+        s_AudioBufferInfo->buffer_index = 0;
+        s_AudioBufferInfo->buffer_size = 0;
+        s_AudioBufferInfo->channel_nb = 2;
+        s_AudioBufferInfo->sample_rate = 44100;
+    }
 
 private:
     static SwrContext* s_Resampler_Context;

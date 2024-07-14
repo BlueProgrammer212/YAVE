@@ -73,13 +73,14 @@ public:
 
     void render();
     void render_video_preview();
+    void render_subtitles(const ImVec2& min, const ImVec2& max);
 
 public:
     void handle_events();
     void handle_keyup_events();
     bool handle_custom_events();
     void handle_zooming(float delta_time);
-    const ImVec2 maintain_video_aspect_ratio();
+    const ImVec2 maintain_video_aspect_ratio(ImVec2* display_min);
 
 public:
     void update_texture();

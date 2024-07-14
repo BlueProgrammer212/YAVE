@@ -9,16 +9,11 @@ SwrContext* AudioPlayer::s_Resampler_Context = nullptr;
 // Create pointers to store the latest frame and packet.
 AVFrame* AudioPlayer::s_LatestFrame = nullptr;
 AVPacket* AudioPlayer::s_LatestPacket = nullptr;
-AVPacket* AudioPlayer::s_LatestAudioPacket = nullptr;
 
 StreamMap AudioPlayer::s_StreamList = {};
 
 // Initialize the clock network.
-double AudioPlayer::s_VideoInternalClock = 0.0;
-double AudioPlayer::s_AudioInternalClock = 0.0;
-
-double AudioPlayer::s_PauseStartTime = 0.0;
-double AudioPlayer::s_PauseEndTime = 0.0;
+std::unique_ptr<ClockNetwork> AudioPlayer::s_ClockNetwork = std::make_unique<ClockNetwork>();
 
 std::unique_ptr<AudioBufferInfo> AudioPlayer::s_AudioBufferInfo =
     std::make_unique<AudioBufferInfo>();
@@ -29,7 +24,6 @@ AudioPlayer::AudioPlayer()
     : m_audio_state(std::make_shared<AudioState>())
     , m_device_info(std::make_unique<AudioDeviceInfo>())
 {
-    s_LatestAudioPacket = av_packet_alloc();
 }
 
 #pragma region Init Functions
@@ -81,9 +75,6 @@ int AudioPlayer::init_sdl_mixer(int num_channels, int nb_samples)
     const auto& stream_info = s_StreamList.at("Audio");
     auto& [device_id, spec, wanted_spec] = *m_device_info;
 
-    m_audio_state->flags &= ~AudioFlags::IS_INPUT_CHANGED;
-    m_audio_state->flags |= AudioFlags::IS_AUDIO_THREAD_ACTIVE;
-
     SDL_memset(&wanted_spec, 0, sizeof(wanted_spec));
 
     wanted_spec.freq = stream_info->av_codec_ctx->sample_rate;
@@ -101,7 +92,14 @@ int AudioPlayer::init_sdl_mixer(int num_channels, int nb_samples)
 
     wanted_spec.callback = &audio_callback;
 
+    m_audio_state->flags &= ~AudioFlags::IS_INPUT_CHANGED;
+    m_audio_state->flags |= AudioFlags::IS_AUDIO_THREAD_ACTIVE;
     m_audio_state->av_codec_ctx = stream_info->av_codec_ctx;
+
+    if (!m_audio_state->latest_audio_packet) {
+        m_audio_state->latest_audio_packet = av_packet_alloc();
+    }
+
     wanted_spec.userdata = m_audio_state.get();
 
     device_id = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &spec, SDL_AUDIO_ALLOW_FORMAT_CHANGE);
@@ -156,10 +154,10 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
 
         const int bytes_per_sec = sample_per_ch_size * userdata->av_codec_ctx->sample_rate;
 
-        s_AudioInternalClock +=
+        s_ClockNetwork->audio_internal_clock +=
             static_cast<double>(buffer_size) / static_cast<double>(bytes_per_sec);
 
-        userdata->pts = s_AudioInternalClock;
+        userdata->pts = s_ClockNetwork->audio_internal_clock;
 
         s_AudioBufferInfo->channel_nb = userdata->av_codec_ctx->channels;
         s_AudioBufferInfo->buffer_size = buffer_size;
@@ -185,14 +183,13 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
     };
 
     static const auto bytes_per_sample = sizeof(decltype(resampled_audio_buffer)::value_type);
-
     const int sample_per_ch_size = bytes_per_sample * userdata->av_codec_ctx->channels;
-
     const int bytes_per_sec = sample_per_ch_size * userdata->av_codec_ctx->sample_rate;
 
-    s_AudioInternalClock += static_cast<double>(buffer_size) / static_cast<double>(bytes_per_sec);
+    s_ClockNetwork->audio_internal_clock +=
+        static_cast<double>(buffer_size) / static_cast<double>(bytes_per_sec);
 
-    userdata->pts = s_AudioInternalClock;
+    userdata->pts = s_ClockNetwork->audio_internal_clock;
 
     s_AudioBufferInfo->channel_nb = userdata->av_codec_ctx->channels;
     s_AudioBufferInfo->buffer_size = buffer_size;
@@ -239,27 +236,30 @@ int AudioPlayer::add_dummy_samples(
 int AudioPlayer::synchronize_audio(
     struct AudioState* audio_state, float* samples, int num_samples, int* samples_size)
 {
-    const double delta = s_AudioInternalClock - s_VideoInternalClock;
+    const double delta_internal_clock =
+        s_ClockNetwork->audio_internal_clock - s_ClockNetwork->video_internal_clock;
+
     double avg_diff = 0.0;
 
     const auto sample_rate = audio_state->av_codec_ctx->sample_rate;
     const int num_channels = audio_state->av_codec_ctx->channels;
     const int sample_size = sizeof(decltype(*samples));
 
-    if (delta >= 1.0) {
+    if (delta_internal_clock >= 1.0) {
         audio_state->audio_diff_avg_count = 0;
         audio_state->delta_accum = 0;
         return 0;
     }
 
-    audio_state->delta_accum = delta + AUDIO_DIFF_AVG_COEF * audio_state->delta_accum;
+    audio_state->delta_accum =
+        delta_internal_clock + AV_DIFFERENCE_AVG_COEF * audio_state->delta_accum;
 
-    if (audio_state->audio_diff_avg_count < AUDIO_DIFF_AVG_NB) {
+    if (audio_state->audio_diff_avg_count < AV_DIFFERENCE_COUNT) {
         audio_state->audio_diff_avg_count++;
         return 0;
     }
 
-    avg_diff = audio_state->delta_accum * (1.0 - AUDIO_DIFF_AVG_COEF);
+    avg_diff = audio_state->delta_accum * (1.0 - AV_DIFFERENCE_AVG_COEF);
 
     // If the difference is small, don't adjust the samples.
     if (std::abs(avg_diff) < SYNC_THRESHOLD) {
@@ -269,7 +269,8 @@ int AudioPlayer::synchronize_audio(
     // Calculate the ideal buffer size to successfully synchronize the audio.
     const int total_sample_bytes = num_channels * sample_size;
 
-    int wanted_size = *samples_size + (static_cast<int>(delta * sample_rate) * total_sample_bytes);
+    int wanted_size =
+        *samples_size + (static_cast<int>(delta_internal_clock * sample_rate) * total_sample_bytes);
 
     const int min_size = calculate_bounds(*samples_size, false);
     const int max_size = calculate_bounds(*samples_size, true);
@@ -297,7 +298,7 @@ void AudioPlayer::audio_callback(void* t_userdata, Uint8* stream, int len)
     auto* userdata = static_cast<AudioState*>(t_userdata);
 
     while (len > 0) {
-        int result = decode_audio_packet(userdata, s_LatestAudioPacket);
+        int result = decode_audio_packet(userdata, userdata->latest_audio_packet);
 
         if (result < 0) {
             std::memset(stream, 0, len);
@@ -349,7 +350,7 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
     }
 
     if (audio_packet->pts != AV_NOPTS_VALUE) {
-        s_AudioInternalClock = av_q2d(stream_info->timebase) * audio_packet->pts;
+        s_ClockNetwork->audio_internal_clock = av_q2d(stream_info->timebase) * audio_packet->pts;
     }
 
     response = avcodec_receive_frame(stream_info->av_codec_ctx, s_LatestFrame);

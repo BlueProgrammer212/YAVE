@@ -83,13 +83,15 @@ public:
     void update(float delta_time);
     void update_timestamp();
 
-    [[maybe_unused]] int update_segment_waveform(
-        const std::vector<float>& audio_data, int segment_index);
+    int update_segment_waveform(const std::vector<float>& audio_data, int segment_index);
 
-    void add_segment(const Segment& segment);
+    inline void add_segment(const Segment& segment)
+    {
+        m_segment_array.push_back(std::make_unique<Segment>(segment));
+    };
 
     /**
-     * @brief Sends a custom event (FF_SEEK_TO_TIMESTAMP_EVENT) to SDL.
+     * @brief Pushes FF_SEEK_TO_TIMESTAMP_EVENT to the event listener.
      * @param[in] mouse_pos A pointer to the requested timestamp.
      * @return 1 for success, 0 for error.
      */

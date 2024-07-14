@@ -6,6 +6,8 @@
 
 namespace YAVE
 {
+class SubtitlePlayer;
+
 constexpr std::size_t SUBTITLES_BUFFER_SIZE = 16384;
 
 struct Transition;

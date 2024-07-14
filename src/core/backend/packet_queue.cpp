@@ -31,7 +31,7 @@ int PacketQueue::enqueue(const AVPacket* src_packet)
 
 int PacketQueue::dequeue(AVPacket* dest_packet)
 {
-    if (m_packet_deque.empty() || !dest_packet || !&m_packet_deque.front()) {
+    if (m_packet_deque.empty() || !dest_packet || !(&m_packet_deque.front())) {
         return -1;
     }
 

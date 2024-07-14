@@ -11,7 +11,6 @@
 
 #include "core/application.hpp"
 #include "core/backend/audio_player.hpp"
-#include "core/backend/subtitle_player.hpp"
 #include "core/backend/packet_queue.hpp"
 
 namespace YAVE
@@ -172,11 +171,10 @@ public:
     static void synchronize_video(VideoState* video_state);
 
     /**
-     * @brief Finds a video frame.
-     *
+     * @brief Enqueues audio and video packets in a separate thread.
      * @param data The video state
      */
-    static int enqueue_frames(void* data);
+    static int enqueue_packets(void* data);
 
     /**
      * @brief Jump to specific timestamp.
@@ -229,7 +227,7 @@ public:
      * @brief Get the presentation timestamp of the latest video frame.
      * @return double
      */
-    [[nodiscard]] inline double getPTS() const
+    [[nodiscard]] inline double get_pts() const
     {
         return static_cast<double>(m_video_state->pts);
     }
@@ -238,7 +236,7 @@ public:
      * @brief Access the video flags.
      * @return VideoFlags&
      */
-    [[nodiscard]] inline VideoFlags& getFlags() noexcept
+    [[nodiscard]] inline VideoFlags& get_flags() noexcept
     {
         return m_video_state->flags;
     }
@@ -252,14 +250,15 @@ public:
         return m_video_state;
     }
 
-    [[nodiscard]] inline std::string getFilename() noexcept
+    [[nodiscard]] inline std::string get_filename() noexcept
     {
         return opened_file;
     }
 
-    [[nodiscard]] static double calculateReferenceClock();
+    [[nodiscard]] static double calculate_reference_clock();
 
-    [[nodiscard]] static double calculateActualDelay(VideoState* video_state, double& frame_timer);
+    [[nodiscard]] static double calculate_actual_delay(
+        VideoState* video_state, double& frame_timer);
 
     void pause_video();
 
@@ -268,7 +267,10 @@ public:
      * @param[in] stream_ptr
      * @param name
      */
-    void add_stream(StreamInfoPtr stream_ptr, std::string name);
+    static void add_stream(StreamInfoPtr stream_ptr, std::string name);
+
+    static int process_stream(
+        const AVStream* stream, const AVCodec* av_codec, const StreamID stream_index);
 
     /**
      * @brief Waits for the threads to finish.
@@ -294,6 +296,8 @@ protected:
     SDL_Thread* m_video_tid;
 
 private:
+    std::unique_ptr<VideoLoader> m_loader;
+
     static int init_sws_scaler_ctx(VideoState* video_state);
 
     int init_hwaccel_decoder(AVCodecContext* ctx, const enum AVHWDeviceType type);

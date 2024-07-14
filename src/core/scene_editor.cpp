@@ -2,10 +2,11 @@
 
 namespace YAVE
 {
-void SceneEditor::init()
-{
-    m_subtitle_player = std::make_unique<SubtitlePlayer>();
-}
+SceneEditor::SceneEditor()
+    : m_subtitle_player(std::make_unique<SubtitlePlayer>())
+    , m_subtitle_input_buffer({}){};
+
+void SceneEditor::init() {}
 
 void SceneEditor::update() {}
 
@@ -20,6 +21,11 @@ void SceneEditor::render_subtitles_window()
     ImGui::Begin("Subtitles");
 
     if (ImGui::Button("Add Subtitle at Current Timestamp")) {
+    }
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Load a .srt file")) {
     }
 
     const auto& window_size = ImGui::GetWindowSize();

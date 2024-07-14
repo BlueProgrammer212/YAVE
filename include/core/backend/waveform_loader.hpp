@@ -4,12 +4,13 @@
 #include <iostream>
 
 #include "core/application.hpp"
-#include "core/backend/loader.hpp"
+#include "core/backend/video_loader.hpp"
 
 namespace YAVE
 {
 struct WaveformState;
 struct Waveform;
+struct StreamInfo;
 
 constexpr int MAX_FILE_NUMBER = 3;
 
@@ -17,9 +18,7 @@ using WaveformCache = std::unordered_map<std::string, Waveform*>;
 
 struct WaveformState {
     AVFormatContext* av_format_context = nullptr;
-    AVCodecContext* av_codec_context = nullptr;
-    AVCodecParameters* av_codec_parameters = nullptr;
-    AVCodec* av_codec = nullptr;
+    std::shared_ptr<StreamInfo> stream_info = nullptr;
     AVFrame* av_frame = nullptr;
     AVPacket* av_packet = nullptr;
 };
@@ -40,6 +39,9 @@ public:
 
     void free_waveform(Waveform* waveform);
     int request_audio_waveform(const char* filename);
+
+    static void normalize_audio_data(
+        const std::vector<float>& audio_data, std::vector<float>* out, const float factor = 1.0f);
 
     static SDL_mutex* mutex;
     static SDL_cond* cond;
@@ -65,8 +67,10 @@ private:
     };
 
     static WaveformCache s_LoadedWaveforms;
-    FileQueue* m_file_queue;
     static SwrContext* s_ResamplerContext;
+
+    static std::unique_ptr<VideoLoader> s_VideoLoader;
+    FileQueue* m_file_queue;
     SDL_Thread* m_waveform_loader_thread;
 };
 } // namespace YAVE

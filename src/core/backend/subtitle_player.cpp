@@ -2,15 +2,21 @@
 
 namespace YAVE
 {
-SubtitlePlayer::SubtitlePlayer() {}
+SubtitlePlayer::SubtitlePlayer()
+    : m_av_packet(nullptr)
+    , m_av_frame(nullptr)
+    , m_decoding_thread(nullptr)
+    , m_parser(nullptr)
+{
+}
 
 SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
     : m_parser_factory(std::make_unique<SubtitleParserFactory>(input_file_path.c_str()))
     , m_av_packet(nullptr)
     , m_av_frame(nullptr)
+    , m_parser(nullptr)
     , m_decoding_thread(nullptr)
 {
-    // The parser is automatically deleleted once the subtitles are obtained.
     m_parser = m_parser_factory->getParser();
     auto* subtitles = new std::vector<SubtitleItem*>(m_parser->getSubtitles());
 
@@ -20,8 +26,16 @@ SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
 
 SubtitlePlayer::~SubtitlePlayer()
 {
-    delete m_parser;
+    if (m_parser != nullptr) {
+        delete m_parser;
+    }
 };
+
+[[nodiscard]] const std::unique_ptr<SubtitleParserFactory> SubtitlePlayer::open_srt_file(
+    const std::string& input_file_path)
+{
+    return std::make_unique<SubtitleParserFactory>(input_file_path);
+}
 
 int SubtitlePlayer::callback(void* userdata)
 {

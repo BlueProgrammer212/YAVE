@@ -1,12 +1,15 @@
 #include "core/backend/waveform_loader.hpp"
+#include "core/backend/video_loader.hpp"
 
 namespace YAVE
 {
 SDL_mutex* WaveformLoader::mutex = nullptr;
 SDL_cond* WaveformLoader::cond = nullptr;
-SwrContext* WaveformLoader::s_ResamplerContext = nullptr;
 
+SwrContext* WaveformLoader::s_ResamplerContext = nullptr;
 WaveformCache WaveformLoader::s_LoadedWaveforms = {};
+
+std::unique_ptr<VideoLoader> WaveformLoader::s_VideoLoader = std::make_unique<VideoLoader>();
 
 int WaveformLoader::send_waveform_to_main_thread(Waveform* waveform, int segment_index)
 {
@@ -29,6 +32,15 @@ int WaveformLoader::request_audio_waveform(const char* filename)
     SDL_CondSignal(cond);
 
     return 0;
+}
+
+void WaveformLoader::normalize_audio_data(
+    const std::vector<float>& audio_data, std::vector<float>* out, const float factor)
+{
+    const float loudest_sample = *std::max_element(audio_data.begin(), audio_data.end());
+
+    std::transform(audio_data.begin(), audio_data.end(), out->begin(),
+        [&](const float& sample) { return sample / (loudest_sample * factor); });
 }
 
 int WaveformLoader::init_swr_resampler_context(Waveform* waveform)
@@ -76,7 +88,7 @@ int WaveformLoader::populate_audio_data(Waveform* waveform)
 
     const auto nb_channels = waveform->state->av_frame->channels;
     const auto nb_samples = waveform->state->av_frame->nb_samples;
-    const auto sample_format = waveform->state->av_codec_context->sample_fmt;
+    const auto sample_format = waveform->state->stream_info->av_codec_ctx->sample_fmt;
     bool is_audio_planar = av_sample_fmt_is_planar(sample_format);
 
     const auto out_samples_nb = swr_get_out_samples(s_ResamplerContext, nb_samples);
@@ -150,7 +162,7 @@ int WaveformLoader::start(void* data)
 
         auto& av_frame = waveform->state->av_frame;
         auto& av_packet = waveform->state->av_packet;
-        auto& av_codec_ctx = waveform->state->av_codec_context;
+        auto& av_codec_ctx = waveform->state->stream_info->av_codec_ctx;
 
         av_frame = av_frame_alloc();
         av_packet = av_packet_alloc();
@@ -222,8 +234,8 @@ void WaveformLoader::free_waveform(Waveform* waveform)
     avformat_close_input(&waveform->state->av_format_context);
     avformat_free_context(waveform->state->av_format_context);
 
-    avcodec_close(waveform->state->av_codec_context);
-    avcodec_free_context(&waveform->state->av_codec_context);
+    avcodec_close(waveform->state->stream_info->av_codec_ctx);
+    avcodec_free_context(&waveform->state->stream_info->av_codec_ctx);
 
     av_frame_free(&waveform->state->av_frame);
     av_packet_free(&waveform->state->av_packet);
@@ -241,22 +253,15 @@ int WaveformLoader::open_file(std::string filename, Waveform* waveform, int* str
         return 0;
     }
 
-    auto& [av_format_context, av_codec_context, av_codec_parameters, av_codec, av_frame,
-        av_packet] = *waveform->state;
+    auto& [av_format_context, stream_info, av_frame, av_packet] = *waveform->state;
+    stream_info = std::make_shared<StreamInfo>();
 
-    av_format_context = avformat_alloc_context();
+    auto& av_codec = stream_info->av_codec;
+    auto& av_codec_params = stream_info->av_codec_params;
+    auto& av_codec_ctx = stream_info->av_codec_ctx;
 
-    if (!av_format_context) {
-        std::cout << "[Waveform] Failed to allocate memory for the format context.\n";
-        return -1;
-    }
-
-    int open_input_ret =
-        avformat_open_input(&av_format_context, filename.c_str(), nullptr, nullptr);
-
-    if (open_input_ret != 0) {
-        std::cout << "[Waveform] Failed to open the input: " << av_error_to_string(open_input_ret)
-                  << "\n";
+    if (!s_VideoLoader->allocate_format_context(&av_format_context, filename)) {
+        std::cout << "[Waveform] Failed to allocate data for the format context.\n";
         return -1;
     }
 
@@ -265,7 +270,7 @@ int WaveformLoader::open_file(std::string filename, Waveform* waveform, int* str
     for (std::uint32_t i = 0; i < av_format_context->nb_streams; ++i) {
         auto& stream = av_format_context->streams[i];
         av_codec = avcodec_find_decoder(stream->codecpar->codec_id);
-        av_codec_parameters = stream->codecpar;
+        av_codec_params = stream->codecpar;
 
         if (!av_codec || stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
             continue;
@@ -284,15 +289,15 @@ int WaveformLoader::open_file(std::string filename, Waveform* waveform, int* str
     *stream_index_ptr = stream_index;
 
     // Allocate a context for the decoder.
-    av_codec_context = avcodec_alloc_context3(av_codec);
+    av_codec_ctx = avcodec_alloc_context3(av_codec);
 
-    if (!av_codec_context || !av_codec_parameters) {
+    if (!av_codec_ctx || !av_codec_params) {
         std::cout << "[Waveform] Failed to create the codec context.\n";
         return -1;
     }
 
     const int codec_param_to_ctx_result =
-        avcodec_parameters_to_context(av_codec_context, av_codec_parameters);
+        avcodec_parameters_to_context(av_codec_ctx, av_codec_params);
 
     if (codec_param_to_ctx_result < 0) {
         std::cout << "[Waveform] Failed to set the parameters of the codec "
@@ -300,7 +305,7 @@ int WaveformLoader::open_file(std::string filename, Waveform* waveform, int* str
         return -1;
     }
 
-    if (avcodec_open2(av_codec_context, av_codec, nullptr) < 0) {
+    if (avcodec_open2(av_codec_ctx, av_codec, nullptr) < 0) {
         std::cout << "[Waveform] Failed to open the audio stream.\n";
         return -1;
     }
