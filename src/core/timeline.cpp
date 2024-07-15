@@ -168,7 +168,7 @@ void Timeline::maintain_thumbnail_aspect_ratio(
 void Timeline::render_segment_thumbnail(
     const ImVec2& min, unsigned int tex_id, const VideoDimension& resolution)
 {
-    auto thumbnail_content_region = ImVec2(80.0f, m_track_style.size.y / 2);
+    auto thumbnail_content_region = ImVec2(SEGMENT_THUMBNAIL_WIDTH, m_track_style.size.y / 2);
 
     auto thumbnail_min = min;
     auto thumbnail_max = thumbnail_content_region;
@@ -183,6 +183,43 @@ void Timeline::render_segment_thumbnail(
 
     m_draw_list->AddImage(reinterpret_cast<ImTextureID>(texture_id_as_ptr), thumbnail_min,
         thumbnail_min + thumbnail_max);
+}
+
+int Timeline::handle_segment_renaming(std::shared_ptr<Segment> segment, const ImVec2& min,
+    const ImVec2& max, const ImVec2& initial_cursor_pos)
+{
+    constexpr std::size_t SEGMENT_NAME_BUFFER_SIZE = 64;
+
+    static bool is_renaming = false;
+
+    if (ImGui::IsMouseHoveringRect(min, min + ImVec2(100, 40)) &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        is_renaming = true;
+    }
+
+    if (!is_renaming) {
+        return -1;
+    }
+
+    const float delta_time = segment->end_time - segment->start_time;
+    const float segment_width = delta_time * m_segment_style.scale;
+
+    ImGui::SetCursorScreenPos(min);
+
+    // Ensure that the input box is within the segment.
+    float input_box_width = (segment_width * 0.90f);
+    input_box_width = std::min(300.0f, input_box_width);
+
+    ImGui::SetNextItemWidth(input_box_width - SEGMENT_THUMBNAIL_WIDTH);
+    segment->name.resize(SEGMENT_NAME_BUFFER_SIZE);
+    ImGui::InputText("##rename_segment", segment->name.data(), SEGMENT_NAME_BUFFER_SIZE);
+    ImGui::SetCursorScreenPos(initial_cursor_pos);
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+        is_renaming = false;
+    }
+
+    return 0;
 }
 
 void Timeline::render_segments()
@@ -221,7 +258,9 @@ void Timeline::render_segments()
         min += m_segment_style.label_margin;
         min.x += 80.0f;
 
-        m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
+        if (handle_segment_renaming(segment, min, max, initial_cursor_pos) < 0) {
+            m_draw_list->AddText(min, IM_COL32_WHITE, segment->name.c_str());
+        }
 
         render_waveform(start_point, max, segment->waveform_data);
         ImGui::SetCursorScreenPos(initial_cursor_pos);

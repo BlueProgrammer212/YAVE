@@ -18,6 +18,7 @@ namespace YAVE
 enum CustomVideoEvents : std::uint32_t {
     FF_REFRESH_VIDEO_EVENT = SDL_USEREVENT,
     FF_LOAD_NEW_VIDEO_EVENT,
+    FF_LOAD_SRT_FILE_EVENT,
     FF_TOGGLE_PAUSE_EVENT,
     FF_MUTE_AUDIO_EVENT,
     FF_SEEK_TO_TIMESTAMP_EVENT,
@@ -162,7 +163,8 @@ public:
      * @brief Sends the video packets to the decoder and then recieves the frame from the codec.
      * @return 0 <= for success, a negative integer for error.
      */
-    static int decode_video_frame(VideoState* video_state, AVPacket* video_packet);
+    static int decode_video_frame(
+        VideoState* video_state, AVPacket* video_packet, AVFrame* dummy_frame = nullptr);
 
     /**
      * @brief Synchronize the video with the audio using PTS and DTS.
@@ -181,7 +183,7 @@ public:
      * @param seconds The timestamp in seconds.
      * @return 0 <= for success, a negative integer for error.
      */
-    int seek_frame(float seconds);
+    int seek_frame(float seconds, bool update_frame = false);
 
     /**
      * @brief After decoding the packet will be translated into a framebuffer.

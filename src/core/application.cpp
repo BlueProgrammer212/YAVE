@@ -247,8 +247,8 @@ void Application::refresh_thumbnails()
 void Application::seek_to_requested_timestamp()
 {
     const auto* requested_timestamp = static_cast<float*>(m_event.user.data1);
-
-    bool result = m_video_processor->seek_frame(static_cast<float>(*requested_timestamp));
+    bool result = m_video_processor->seek_frame(static_cast<float>(*requested_timestamp),
+        m_video_processor->get_flags() & VideoFlags::IS_PAUSED);
 
     if (result != 0) {
         std::cerr << "Failed to jump to timestamp: " << *requested_timestamp << "\n";

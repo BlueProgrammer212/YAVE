@@ -93,29 +93,29 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
         return -1;
     }
 
+    constexpr unsigned int NUM_BINS = 256;
+    constexpr unsigned int MAX_NB_BEST_FRAMES = 64;
+    constexpr unsigned int FRAME_SKIP_INTERVAL = 10;
+
     auto av_codec_ctx = data->stream_info.av_codec_ctx;
 
-    // Using Root Mean Square Error (RMSE) to determine the best frame.
     AVPacket* packet = av_packet_alloc();
-    AVFrame* dummy_frame = av_frame_alloc();
+    AVFrame* current_frame = av_frame_alloc();
     AVFrame* best_frame = av_frame_alloc();
-
-    constexpr int NUM_BINS = 256;
-    constexpr int MAX_NB_BEST_FRAMES = 64;
-    constexpr int FRAME_SKIP_INTERVAL = 10;
 
     std::vector<int> last_histogram(NUM_BINS, 0);
     int frame_skip_count = -1;
 
     static int best_frame_count = 0;
 
-    while (av_read_frame(data->av_format_context, packet) >= 0) {
+    for (int response = 0, cmp_result = 0; av_read_frame(data->av_format_context, packet) >= 0;
+         ++frame_skip_count) {
         if (packet->stream_index != data->stream_info.stream_index) {
             av_packet_unref(packet);
             continue;
         }
 
-        int response = avcodec_send_packet(av_codec_ctx, packet);
+        response = avcodec_send_packet(av_codec_ctx, packet);
 
         if (response == AVERROR(EAGAIN)) {
             av_packet_unref(packet);
@@ -127,7 +127,7 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
             return -1;
         }
 
-        response = avcodec_receive_frame(av_codec_ctx, dummy_frame);
+        response = avcodec_receive_frame(av_codec_ctx, current_frame);
 
         if (response == AVERROR(EAGAIN)) {
             av_packet_unref(packet);
@@ -139,44 +139,43 @@ int ThumbnailLoader::pick_best_thumbnail(Thumbnail* data, bool use_middle_frame)
             return -1;
         }
 
-        auto current_histogram = extract_histogram(dummy_frame, NUM_BINS);
+        auto current_histogram = extract_histogram(current_frame, NUM_BINS);
 
-        if (++frame_skip_count == 0) {
+        if (frame_skip_count == 0) {
             free_histogram(&last_histogram);
             last_histogram = std::move(*current_histogram);
             av_packet_unref(packet);
             continue;
         }
 
-        int comparison_result = compare_previous_histogram(*current_histogram, last_histogram);
+        cmp_result = compare_previous_histogram(*current_histogram, last_histogram);
         av_packet_unref(packet);
 
-        if (comparison_result != NEW_HISTOGRAM_BETTER) {
+        if (cmp_result != NEW_HISTOGRAM_BETTER) {
             continue;
         }
 
         free_histogram(&last_histogram);
         last_histogram = std::move(*current_histogram);
-        av_frame_ref(best_frame, dummy_frame);
+        av_frame_ref(best_frame, current_frame);
 
         break;
     }
 
     free_histogram(&last_histogram);
-    av_frame_free(&dummy_frame);
+    av_frame_free(&current_frame);
     av_packet_free(&packet);
 
     if (!best_frame->data[0]) {
         return -1;
     }
 
-    double best_frame_pts_in_sec = best_frame->pts * av_q2d(data->stream_info.timebase);
+    const auto best_frame_pts_sec = best_frame->pts * av_q2d(data->stream_info.timebase);
 
     best_frame_count = 0;
     av_frame_free(&best_frame);
 
-    if (peek_video_frame_by_timestamp(static_cast<std::int64_t>(best_frame_pts_in_sec), data) !=
-        0) {
+    if (peek_video_frame_by_timestamp(static_cast<std::int64_t>(best_frame_pts_sec), data) != 0) {
         return -1;
     };
 

@@ -9,7 +9,7 @@ VideoPlayer::VideoPlayer(SampleRate t_sample_rate)
     , m_hw_device_ctx(nullptr)
 {
     m_audio_state->sample_rate = t_sample_rate;
-    SDL_RegisterEvents(7);
+    SDL_RegisterEvents(8);
 }
 
 VideoPlayer::~VideoPlayer()
@@ -269,9 +269,10 @@ int VideoPlayer::play_video(AVRational* timebase)
         return -1;
     }
 
-    PacketQueue::cond = SDL_CreateCond();
+    PacketQueue::video_paused_cond = SDL_CreateCond();
+    PacketQueue::packet_availability_cond = SDL_CreateCond();
 
-    if (!PacketQueue::cond) {
+    if (!PacketQueue::video_paused_cond || !PacketQueue::packet_availability_cond) {
         std::cerr << "Failed to create a condition variable: " << SDL_GetError() << "\n";
         SDL_DestroyMutex(PacketQueue::mutex);
         return -1;
@@ -464,7 +465,9 @@ void VideoPlayer::synchronize_video(VideoState* video_state)
     }
 
     // Adjust frame_timer if video is paused
-    double pause_elapsed_time = s_ClockNetwork->pause_end_time - s_ClockNetwork->pause_start_time;
+    const double pause_elapsed_time =
+        s_ClockNetwork->pause_end_time - s_ClockNetwork->pause_start_time;
+
     video_state->frame_timer -= pause_elapsed_time;
 
     s_ClockNetwork->pause_start_time = 0.0;
@@ -513,12 +516,13 @@ int VideoPlayer::video_callback(void* data)
         bool is_packet_avail = s_VideoPacketQueue->dequeue(video_packet) == 0;
 
         if (!is_packet_avail) {
+            SDL_CondWait(PacketQueue::packet_availability_cond, PacketQueue::mutex);
             SDL_UnlockMutex(PacketQueue::mutex);
             continue;
         }
 
         if (video_state->flags & VideoFlags::IS_PAUSED) {
-            SDL_CondWait(PacketQueue::cond, PacketQueue::mutex);
+            SDL_CondWait(PacketQueue::video_paused_cond, PacketQueue::mutex);
         }
 
         video_state->pts = 0;
@@ -539,12 +543,10 @@ int VideoPlayer::video_callback(void* data)
     return 0;
 }
 
-int VideoPlayer::decode_video_frame(VideoState* video_state, AVPacket* video_packet)
+int VideoPlayer::decode_video_frame(
+    VideoState* video_state, AVPacket* video_packet, AVFrame* dummy_frame)
 {
     const auto& video_stream_info = s_StreamList.at("Video");
-
-    auto& width = video_stream_info->width;
-    auto& height = video_stream_info->height;
 
     if (!video_packet) {
         return -1;
@@ -558,8 +560,8 @@ int VideoPlayer::decode_video_frame(VideoState* video_state, AVPacket* video_pac
     }
 
     // After sending the packet, receive the frame data from the decoder
-    int receive_frame_errcode =
-        avcodec_receive_frame(video_stream_info->av_codec_ctx, s_LatestFrame);
+    int receive_frame_errcode = avcodec_receive_frame(
+        video_stream_info->av_codec_ctx, !dummy_frame ? s_LatestFrame : dummy_frame);
 
     if (receive_frame_errcode < 0) {
         return -1;
@@ -613,7 +615,7 @@ int VideoPlayer::enqueue_packets(void* data)
 
 #pragma region Seek Operation
 
-int VideoPlayer::seek_frame(float seconds)
+int VideoPlayer::seek_frame(float seconds, bool should_update_framebuffer)
 {
     if (seconds == -1.0f || seconds > (m_duration / AV_TIME_BASE)) {
         return -1;
@@ -673,8 +675,8 @@ void VideoPlayer::pause_video()
     m_video_state->flags ^= VideoFlags::IS_PAUSED;
     pause_audio();
 
-    if (PacketQueue::cond) {
-        SDL_CondSignal(PacketQueue::cond);
+    if (PacketQueue::video_paused_cond) {
+        SDL_CondSignal(PacketQueue::video_paused_cond);
     }
 }
 
@@ -764,7 +766,7 @@ void VideoPlayer::reset_video_state()
     std::cout << "Video state has been reset.\n";
 
     SDL_DestroyMutex(PacketQueue::mutex);
-    SDL_DestroyCond(PacketQueue::cond);
+    SDL_DestroyCond(PacketQueue::video_paused_cond);
 }
 
 #pragma endregion Deallocation

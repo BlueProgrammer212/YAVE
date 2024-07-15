@@ -41,9 +41,8 @@ int SubtitlePlayer::callback(void* userdata)
 {
     auto* subtitles = static_cast<std::vector<SubtitleItem*>*>(userdata);
 
-    for (auto& sub : *subtitles) {
-        std::cout << sub->getDialogue() << "\n";
-    }
+    std::for_each(subtitles->begin(), subtitles->end(),
+        [&](const auto& sub) { std::cout << sub->getDialogue() << "\n"; });
 
     return 0;
 }

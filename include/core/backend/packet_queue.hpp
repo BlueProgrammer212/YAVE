@@ -6,7 +6,7 @@
 
 namespace YAVE
 {
-constexpr std::size_t MAX_PACKETS_NB = 32;
+constexpr std::size_t MAX_PACKETS_NB = 24;
 
 /**
  * @typedef PacketDeque
@@ -51,6 +51,11 @@ public:
 
     inline void clear()
     {
+        // Because reseting the packet queue, unreference the packets first.
+        for (AVPacket packet : m_packet_deque) {
+            av_packet_unref(&packet);
+        }
+
         m_packet_deque.clear();
         m_nb_packets = 0;
     }
@@ -70,7 +75,8 @@ public:
     }
 
     static SDL_mutex* mutex;
-    static SDL_cond* cond;
+    static SDL_cond* video_paused_cond;
+    static SDL_cond* packet_availability_cond;
 
     static bool start_audio_dequeue;
 

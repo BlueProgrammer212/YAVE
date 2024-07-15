@@ -19,6 +19,7 @@ struct PlayheadProperties;
 struct VideoDimension;
 
 constexpr unsigned int NUMBER_OF_TRACKS = 5;
+constexpr float SEGMENT_THUMBNAIL_WIDTH = 80.f;
 
 // clang-format off
 constexpr ImPlotAxisFlags WAVEFORM_AXIS_FLAGS =
@@ -124,6 +125,8 @@ private:
         const VideoDimension& resolution, ImVec2& min, ImVec2& max, const ImVec2& content_region);
 
     void handle_segments();
+    int handle_segment_renaming(
+        std::shared_ptr<Segment> segment, const ImVec2& min, const ImVec2& max, const ImVec2& initial_cursor_pos);
     void render_waveform(
         const ImVec2& min, const ImVec2& max, const std::vector<float>& audio_data);
 

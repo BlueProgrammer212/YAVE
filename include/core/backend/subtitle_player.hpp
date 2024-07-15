@@ -5,6 +5,12 @@
 
 namespace YAVE
 {
+struct SubtitleGizmo {
+    std::string content;
+    ImVec2 start_position;
+    ImVec2 end_position;
+};
+
 class SubtitlePlayer
 {
 public:

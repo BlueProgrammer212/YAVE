@@ -410,7 +410,8 @@ void AudioPlayer::free_sdl_mixer()
 {
     SDL_CloseAudioDevice(m_device_info->device_id);
     SDL_DestroyMutex(PacketQueue::mutex);
-    SDL_DestroyCond(PacketQueue::cond);
+    SDL_DestroyCond(PacketQueue::video_paused_cond);
+    SDL_DestroyCond(PacketQueue::packet_availability_cond);
 }
 #pragma endregion Deallocation
 
