@@ -167,28 +167,29 @@ int WaveformLoader::start(void* data)
         av_frame = av_frame_alloc();
         av_packet = av_packet_alloc();
 
-        while (av_read_frame(waveform->state->av_format_context, av_packet) >= 0) {
+        for (int result = 0; result >= 0;
+             result = av_read_frame(waveform->state->av_format_context, av_packet)) {
             if (av_packet->stream_index != stream_index) {
                 av_packet_unref(av_packet);
                 continue;
             }
 
-            int response = avcodec_send_packet(av_codec_ctx, av_packet);
+            result = avcodec_send_packet(av_codec_ctx, av_packet);
 
-            if (response == AVERROR(EAGAIN)) {
+            if (result == AVERROR(EAGAIN)) {
                 av_packet_unref(av_packet);
                 continue;
-            } else if (response < 0) {
+            } else if (result < 0) {
                 av_packet_unref(av_packet);
                 break;
             }
 
-            response = avcodec_receive_frame(av_codec_ctx, av_frame);
+            result = avcodec_receive_frame(av_codec_ctx, av_frame);
 
-            if (response == AVERROR(EAGAIN)) {
+            if (result == AVERROR(EAGAIN)) {
                 av_packet_unref(av_packet);
                 continue;
-            } else if (response < 0) {
+            } else if (result < 0) {
                 av_packet_unref(av_packet);
                 break;
             }

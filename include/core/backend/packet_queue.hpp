@@ -51,7 +51,7 @@ public:
 
     inline void clear()
     {
-        // Because reseting the packet queue, unreference the packets first.
+        // Before resetting the packet queue, unreference the packets first.
         for (AVPacket packet : m_packet_deque) {
             av_packet_unref(&packet);
         }

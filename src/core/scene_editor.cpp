@@ -3,7 +3,7 @@
 namespace YAVE
 {
 SceneEditor::SceneEditor()
-    : m_subtitle_player(std::make_unique<SubtitlePlayer>())
+    : m_subtitle_player(std::make_unique<SubtitlePlayer>("../../assets/test_video.srt"))
     , m_subtitle_input_buffer({}){};
 
 void SceneEditor::init() {}

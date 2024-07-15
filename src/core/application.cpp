@@ -417,14 +417,16 @@ const ImVec2 Application::maintain_video_aspect_ratio(ImVec2* display_min)
 void Application::render_subtitles(const ImVec2& min, const ImVec2& max)
 {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImGui::SetWindowFontScale(1.8f * m_style_config.current_zoom_factor);
     const std::string sample_subtitle_text = "Hello World!";
     const ImVec2 text_size = ImGui::CalcTextSize(sample_subtitle_text.c_str());
 
-    auto subtitle_display_min = ImVec2(0, 0);
-    subtitle_display_min.x = (max.x + text_size.x) * 0.5f;
-    subtitle_display_min.y = (max.y + text_size.y) * 0.9f;
+    auto subtitle_display_min = min;
+    subtitle_display_min.x += (max.x - text_size.x) * 0.5f;
+    subtitle_display_min.y += (max.y - text_size.y) * 0.9f;
 
     draw_list->AddText(subtitle_display_min, IM_COL32_WHITE, sample_subtitle_text.c_str());
+    ImGui::SetWindowFontScale(1.0f);
 }
 
 void Application::render_video_preview()
@@ -443,7 +445,7 @@ void Application::render_video_preview()
 
     draw_list->AddImage(
         reinterpret_cast<ImTextureID>(tex_id_ptr), display_min, display_min + display_max);
-    render_subtitles(display_min, display_min + display_max);
+    render_subtitles(display_min, display_max);
 
     ImGui::End();
 }

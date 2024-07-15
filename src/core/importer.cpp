@@ -204,7 +204,7 @@ void Importer::render_files(
             maintain_thumbnail_aspect_ratio(&thumbnail_min, video_file->resolution);
 
         auto texture_id_as_ptr = static_cast<std::uintptr_t>(video_file->texture_id);
-
+        
         draw_list->AddImage(reinterpret_cast<ImTextureID>(texture_id_as_ptr), thumbnail_min,
             thumbnail_min + thumbnail_max);
     }
