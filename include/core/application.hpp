@@ -28,6 +28,8 @@ class VideoPlayer;
 class ThumbnailLoader;
 class WaveformLoader;
 
+struct SubtitleGizmo;
+
 struct UIStyleConfig {
     UIStyleConfig(float t_font_size, float default_video_zoom)
         : font_size(t_font_size)
@@ -103,7 +105,7 @@ private:
     std::shared_ptr<VideoPlayer> m_video_processor;
     std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
     std::unique_ptr<WaveformLoader> m_waveform_loader;
-
+    std::unique_ptr<SubtitleGizmo> m_current_subtitle_gizmo;
     UIStyleConfig m_style_config;
 
     SDL_Event m_event;

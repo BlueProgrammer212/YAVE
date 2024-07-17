@@ -51,11 +51,6 @@ public:
 
     inline void clear()
     {
-        // Before resetting the packet queue, unreference the packets first.
-        for (AVPacket packet : m_packet_deque) {
-            av_packet_unref(&packet);
-        }
-
         m_packet_deque.clear();
         m_nb_packets = 0;
     }

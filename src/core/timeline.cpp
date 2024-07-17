@@ -324,8 +324,12 @@ void Timeline::render_timestamp()
 
     m_draw_list->AddRectFilled(timestamp_min, timestamp_max, Color::SECONDARY, 7.5f);
 
+    ImGui::SetWindowFontScale(1.1f);
+
     m_draw_list->AddText(
         timestamp_min + m_track_style.label_margin, 0xFFFFFFFF, m_timestamp.c_str());
+
+    ImGui::SetWindowFontScale(1.0f);
 
     render_ruler(timestamp_max);
 }
@@ -387,7 +391,6 @@ int Timeline::request_seek_frame(std::unique_ptr<float> mouse_pos)
     SDL_Event seek_event;
     seek_event.type = CustomVideoEvents::FF_SEEK_TO_TIMESTAMP_EVENT;
     seek_event.user.data1 = reinterpret_cast<void*>(mouse_pos.release());
-
     return SDL_PushEvent(&seek_event) == 1;
 }
 

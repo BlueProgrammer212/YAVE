@@ -14,6 +14,7 @@ Application::Application()
     , m_tools(std::make_unique<Tools>())
     , m_style_config(UIStyleConfig(15.f, 1.0f))
     , m_waveform_loader(std::make_unique<WaveformLoader>())
+    , m_current_subtitle_gizmo(std::make_unique<SubtitleGizmo>())
 {
 }
 
@@ -111,6 +112,7 @@ void Application::init_video_processor()
     scene_editor->init();
 
     timeline->video_processor = m_video_processor;
+    scene_editor->set_video_player(m_video_processor);
 }
 
 void Application::init_video_texture()
@@ -416,14 +418,25 @@ const ImVec2 Application::maintain_video_aspect_ratio(ImVec2* display_min)
 
 void Application::render_subtitles(const ImVec2& min, const ImVec2& max)
 {
+    if (m_current_subtitle_gizmo->is_empty) {
+        return;
+    }
+
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
     ImGui::SetWindowFontScale(1.8f * m_style_config.current_zoom_factor);
-    const std::string sample_subtitle_text = "Hello World!";
+    const std::string sample_subtitle_text = m_current_subtitle_gizmo->content;
     const ImVec2 text_size = ImGui::CalcTextSize(sample_subtitle_text.c_str());
 
     auto subtitle_display_min = min;
     subtitle_display_min.x += (max.x - text_size.x) * 0.5f;
     subtitle_display_min.y += (max.y - text_size.y) * 0.9f;
+
+    const ImVec2 bg_min = subtitle_display_min - ImVec2(5.0f, 5.0f);
+    const ImVec2 bg_max = text_size + ImVec2(5.0f, 5.0f);
+
+    // Add a background to avoid camouflauge.
+    draw_list->AddRectFilled(bg_min, bg_min + bg_max, IM_COL32(0, 0, 0, 200), 1.0f);
 
     draw_list->AddText(subtitle_display_min, IM_COL32_WHITE, sample_subtitle_text.c_str());
     ImGui::SetWindowFontScale(1.0f);
@@ -523,6 +536,12 @@ bool Application::handle_custom_events()
         preview_video(url);
     } break;
 
+    case CustomVideoEvents::FF_LOAD_SRT_FILE_EVENT: {
+        const auto* file_content = static_cast<std::string*>(m_event.user.data1);
+        m_tools->scene_editor->update_input_buffer(*file_content);
+        delete file_content;
+    } break;
+
     case CustomVideoEvents::FF_REFRESH_THUMBNAIL:
         refresh_thumbnails();
         break;
@@ -530,6 +549,12 @@ bool Application::handle_custom_events()
     case CustomVideoEvents::FF_REFRESH_WAVEFORM:
         refresh_timeline_waveform();
         break;
+
+    case CustomVideoEvents::FF_REFRESH_SUBTITLES: {
+        const auto* userdata = static_cast<SubtitleGizmo*>(m_event.user.data1);
+        m_current_subtitle_gizmo->content = userdata->content;
+        m_current_subtitle_gizmo->is_empty = userdata->is_empty;
+    } break;
 
     case CustomVideoEvents::FF_TOGGLE_PAUSE_EVENT:
         m_video_processor->pause_video();

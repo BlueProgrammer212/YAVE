@@ -24,6 +24,7 @@ enum CustomVideoEvents : std::uint32_t {
     FF_SEEK_TO_TIMESTAMP_EVENT,
     FF_REFRESH_THUMBNAIL,
     FF_REFRESH_WAVEFORM,
+    FF_REFRESH_SUBTITLES
 };
 
 constexpr int COLOR_CHANNELS_NB = 4;
