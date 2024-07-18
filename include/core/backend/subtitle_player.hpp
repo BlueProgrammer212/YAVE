@@ -2,6 +2,8 @@
 
 #include "core/application.hpp"
 #include "srt_parser.h"
+#include <algorithm>
+#include <numeric>
 
 namespace YAVE
 {
@@ -12,6 +14,12 @@ struct SubtitleGizmo {
     float pts = 0.0f;
     float duration = 5.0f;
     bool is_empty = true;
+};
+
+struct SubtitleEditor {
+    std::string content = "";
+    int number_of_words = 0;
+    unsigned int total_dialogue_nb = 0;
 };
 
 class SubtitlePlayer
@@ -25,6 +33,7 @@ public:
     static std::vector<SubtitleGizmo*> s_SubtitleGizmos;
     static int callback(void* userdata);
 
+    void update_subtitles(const std::string& input_file_path);
     void open_srt_file(const std::string& input_file_path);
 
     /**
@@ -33,24 +42,19 @@ public:
      */
     static void new_srt_file(const std::string& out_srt_filename);
 
-    [[nodiscard]] inline const std::vector<SubtitleItem*> get_subtitle_array()
-    {
-        return m_parser->getSubtitles();
-    }
-
     inline void set_video_player_context(std::shared_ptr<VideoPlayer> video_processor)
     {
         SubtitlePlayer::video_processor = video_processor;
     }
 
     static void request_subtitle_gizmo_refresh(SubtitleGizmo* subtitle_gizmo);
-    static void request_srt_editor_load(std::string data);
+    static void request_srt_editor_load(SubtitleEditor* data);
 
     void srt_refresh();
 
 private:
     std::unique_ptr<SubtitleParserFactory> m_parser_factory;
-    SubtitleParser* m_parser;
+    std::vector<SubtitleItem*> m_subtitles;
 
 private:
     SDL_Thread* m_decoding_thread;

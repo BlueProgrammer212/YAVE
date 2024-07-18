@@ -500,6 +500,26 @@ void VideoPlayer::update_pts(VideoState* state, AVPacket* packet)
     }
 }
 
+[[nodiscard]] std::string VideoPlayer::get_current_timestamp_str()
+{
+    const double master_clock = AudioPlayer::get_video_internal_clock();
+    const int total_seconds = static_cast<int>(std::floor(master_clock));
+    const int milliseconds = static_cast<int>((master_clock - total_seconds) * 1000);
+
+    const int hours = total_seconds / 3600;
+    const int minutes = (total_seconds % 3600) / 60;
+    const int seconds = total_seconds % 60;
+
+    // Format each component with leading zeros if necessary
+    std::ostringstream result;
+    result << std::setfill('0') << std::setw(2) << hours << ":";
+    result << std::setfill('0') << std::setw(2) << minutes << ":";
+    result << std::setfill('0') << std::setw(2) << seconds << ",";
+    result << std::setfill('0') << std::setw(3) << milliseconds;
+
+    return result.str();
+}
+
 int VideoPlayer::video_callback(void* data)
 {
     auto* video_state = static_cast<VideoState*>(data);

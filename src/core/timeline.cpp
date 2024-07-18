@@ -27,27 +27,6 @@ void Timeline::init()
 
 #pragma region Update Function
 
-void Timeline::update_timestamp()
-{
-    const double master_clock = AudioPlayer::get_video_internal_clock();
-
-    const int total_seconds = static_cast<int>(std::floor(master_clock));
-    const int milliseconds = static_cast<int>((master_clock - total_seconds) * 1000);
-
-    const int hours = total_seconds / 3600;
-    const int minutes = (total_seconds % 3600) / 60;
-    const int seconds = total_seconds % 60;
-
-    // Format each component with leading zeros if necessary
-    std::ostringstream result;
-    result << std::setfill('0') << std::setw(2) << hours << ":";
-    result << std::setfill('0') << std::setw(2) << minutes << ":";
-    result << std::setfill('0') << std::setw(2) << seconds << ":";
-    result << std::setfill('0') << std::setw(3) << milliseconds;
-
-    m_timestamp = result.str();
-}
-
 void Timeline::update(float delta_time)
 {
     static const float track_proportion = 0.2f;
@@ -56,7 +35,7 @@ void Timeline::update(float delta_time)
     m_playhead_prop.current_time =
         static_cast<float>(AudioPlayer::get_video_internal_clock()) * m_segment_style.scale;
 
-    update_timestamp();
+    m_timestamp = VideoPlayer::get_current_timestamp_str();
 }
 
 #pragma endregion Update Function

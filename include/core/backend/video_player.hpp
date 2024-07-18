@@ -1,6 +1,8 @@
 #pragma once
 
+#include <iomanip>
 #include <optional>
+#include <sstream>
 
 #define NO_SDL_GLEXT
 #define GLEW_STATIC
@@ -257,6 +259,8 @@ public:
     {
         return opened_file;
     }
+
+    [[nodiscard]] static std::string get_current_timestamp_str();
 
     [[nodiscard]] static double calculate_reference_clock();
 

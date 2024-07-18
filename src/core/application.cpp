@@ -537,9 +537,9 @@ bool Application::handle_custom_events()
     } break;
 
     case CustomVideoEvents::FF_LOAD_SRT_FILE_EVENT: {
-        const auto* file_content = static_cast<std::string*>(m_event.user.data1);
-        m_tools->scene_editor->update_input_buffer(*file_content);
-        delete file_content;
+        const auto* subtitle_editor_data = static_cast<SubtitleEditor*>(m_event.user.data1);
+        m_tools->scene_editor->update_input_buffer(subtitle_editor_data);
+        delete subtitle_editor_data;
     } break;
 
     case CustomVideoEvents::FF_REFRESH_THUMBNAIL:

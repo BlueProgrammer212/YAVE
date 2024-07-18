@@ -7,13 +7,11 @@ decltype(SubtitlePlayer::s_SubtitleGizmos) SubtitlePlayer::s_SubtitleGizmos = {}
 
 SubtitlePlayer::SubtitlePlayer()
     : m_decoding_thread(nullptr)
-    , m_parser(nullptr)
 {
 }
 
 SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
     : m_parser_factory(std::make_unique<SubtitleParserFactory>(input_file_path.c_str()))
-    , m_parser(nullptr)
     , m_decoding_thread(nullptr)
 {
     open_srt_file(input_file_path);
@@ -21,10 +19,6 @@ SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
 
 SubtitlePlayer::~SubtitlePlayer()
 {
-    if (m_parser != nullptr) {
-        delete m_parser;
-    }
-
     // Manual deallocation of subtitle gizmos.
     for (auto* gizmo : s_SubtitleGizmos) {
         delete gizmo;
@@ -32,25 +26,51 @@ SubtitlePlayer::~SubtitlePlayer()
     }
 };
 
-void SubtitlePlayer::open_srt_file(const std::string& input_file_path)
+void SubtitlePlayer::update_subtitles(const std::string& input_file_path)
 {
     auto subtitle_parser_factory = std::make_unique<SubtitleParserFactory>(input_file_path.c_str());
-    m_parser = subtitle_parser_factory->getParser();
+    auto parser = subtitle_parser_factory->getParser();
+    m_subtitles = parser->getSubtitles();
 
-    auto subtitles = std::make_unique<std::vector<SubtitleItem*>>(m_parser->getSubtitles());
+    auto subtitle_editor_ptr = std::make_unique<SubtitleEditor>();
+    subtitle_editor_ptr->content = parser->getFileData();
 
-    m_decoding_thread = SDL_CreateThread(
-        &SubtitlePlayer::callback, "Subtitle Decoding Thread", subtitles.release());
+    subtitle_editor_ptr->number_of_words = std::accumulate(m_subtitles.begin(), m_subtitles.end(),
+        0, [&](int sum, SubtitleItem* current_subtitle) mutable {
+            return sum + current_subtitle->getWordCount();
+        });
 
-    request_srt_editor_load(m_parser->getFileData());
+    subtitle_editor_ptr->total_dialogue_nb = m_subtitles.size();
+
+    request_srt_editor_load(subtitle_editor_ptr.release());
+
+    s_SubtitleGizmos.clear();
+    s_SubtitleGizmos.reserve(m_subtitles.size());
+
+    std::for_each(m_subtitles.begin(), m_subtitles.end(), [&](const auto& current_subtitle) {
+        auto gizmo = new SubtitleGizmo();
+        gizmo->content = current_subtitle->getDialogue();
+        gizmo->pts = static_cast<float>(current_subtitle->getStartTime());
+        gizmo->duration = current_subtitle->getEndTime() - gizmo->pts;
+
+        s_SubtitleGizmos.push_back(gizmo);
+    });
 }
 
-void SubtitlePlayer::request_srt_editor_load(std::string data)
+void SubtitlePlayer::open_srt_file(const std::string& input_file_path)
+{
+    update_subtitles(input_file_path);
+
+    m_decoding_thread =
+        SDL_CreateThread(&SubtitlePlayer::callback, "Subtitle Decoding Thread", &m_subtitles);
+}
+
+void SubtitlePlayer::request_srt_editor_load(SubtitleEditor* data)
 {
     SDL_Event srt_load_event;
     auto userdata = std::make_unique<decltype(data)>(data);
     srt_load_event.type = CustomVideoEvents::FF_LOAD_SRT_FILE_EVENT;
-    srt_load_event.user.data1 = userdata.release();
+    srt_load_event.user.data1 = data;
     SDL_PushEvent(&srt_load_event);
 }
 
@@ -66,18 +86,6 @@ int SubtitlePlayer::callback(void* userdata)
 {
     auto* subtitles = static_cast<std::vector<SubtitleItem*>*>(userdata);
     static auto empty_subtitles = new SubtitleGizmo();
-
-    s_SubtitleGizmos.reserve(subtitles->size());
-
-    std::for_each(subtitles->begin(), subtitles->end(), [&](const auto& current_subtitle) {
-        auto gizmo = new SubtitleGizmo();
-        gizmo->content = current_subtitle->getDialogue();
-        gizmo->pts = static_cast<float>(current_subtitle->getStartTime());
-        gizmo->duration = current_subtitle->getEndTime() - gizmo->pts;
-
-        s_SubtitleGizmos.push_back(gizmo);
-    });
-
 
     // Synchronize the video and the subtitles.
     for (int n = 0; Application::is_running && s_SubtitleGizmos.size() > 0;) {

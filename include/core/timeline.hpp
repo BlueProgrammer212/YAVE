@@ -2,8 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -82,7 +80,6 @@ public:
     void init();
     void render();
     void update(float delta_time);
-    void update_timestamp();
 
     int update_segment_waveform(const std::vector<float>& audio_data, int segment_index);
 

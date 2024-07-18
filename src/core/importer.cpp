@@ -57,7 +57,7 @@ void Importer::load_entry(const std::filesystem::directory_entry& entry)
 void Importer::init()
 {
     auto& current_directory = m_user_data->current_directory;
-    current_directory = "../../assets/";
+    current_directory = "../../assets/test_videos/";
 
     std::filesystem::path directory_path(current_directory);
 

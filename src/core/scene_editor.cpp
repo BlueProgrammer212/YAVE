@@ -3,8 +3,8 @@
 namespace YAVE
 {
 SceneEditor::SceneEditor()
-    : m_subtitle_player(std::make_unique<SubtitlePlayer>("../../assets/test_video.srt"))
-    , m_subtitle_input_buffer({}){};
+    : subtitle_player(std::make_unique<SubtitlePlayer>())
+    , m_subtitle(std::make_unique<SubtitleEditor>()){};
 
 void SceneEditor::init() {}
 
@@ -16,16 +16,118 @@ void SceneEditor::render_scene_properties_window()
     ImGui::End();
 }
 
+bool SceneEditor::add_image_button(const std::string& src, unsigned int* tex_id_ptr, ImVec2 size)
+{
+    ImVec2 min = ImGui::GetCursorScreenPos();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    if (*tex_id_ptr == 0) {
+        glGenTextures(1, tex_id_ptr);
+        glBindTexture(GL_TEXTURE_2D, *tex_id_ptr);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        int width = 0;
+        int height = 0;
+        int num_of_channels = 0;
+
+        stbi_set_flip_vertically_on_load(true);
+        unsigned char* image =
+            stbi_load(src.c_str(), &width, &height, &num_of_channels, STBI_rgb_alpha);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    {
+        const ImVec4& button_bg_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+        const ImVec4& button_bg_hovered = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+        const ImVec4& button_bg_active = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+
+        const auto default_button_padding = ImVec2(4.0f, 4.0f);
+        constexpr float default_button_border_radius = 2.0f;
+
+        draw_list->AddRectFilled(min, min + size + default_button_padding,
+            ImGui::ColorConvertFloat4ToU32(button_bg_color), default_button_border_radius);
+
+        glBindTexture(GL_TEXTURE_2D, *tex_id_ptr);
+        draw_list->AddImage(
+            reinterpret_cast<ImTextureID>(*tex_id_ptr), min + default_button_padding, min + size);
+
+        ImGui::Dummy(size + default_button_padding);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    if (!ImGui::IsMouseHoveringRect(min, min + size)) {
+        return false;
+    }
+
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    return ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+}
+
+void SceneEditor::modify_srt_file(const std::string& new_file_data)
+{
+    std::ofstream srt_output_filestream;
+    srt_output_filestream.open(m_active_srt_file);
+
+    if (!srt_output_filestream.is_open()) {
+        std::cerr << "Failed to open file: " << m_active_srt_file << std::endl;
+        return;
+    }
+
+    // Write the new data to the file
+    srt_output_filestream << new_file_data;
+
+    // Close the file
+    srt_output_filestream.close();
+
+    subtitle_player->update_subtitles(m_active_srt_file);
+}
+
 void SceneEditor::render_subtitles_window()
 {
     ImGui::Begin("Subtitles");
 
-    if (ImGui::Button("Add Subtitle at Current Timestamp")) {
-    }
+    ImGui::SameLine();
+
+    static bool is_subtitle_open = false;
+
+    const ImVec2 image_button_size = ImVec2(24, 24);
+
+    static unsigned int refresh_button_tex_id = 0;
+    static unsigned int add_timestamp_button_tex_id = 0;
+    static unsigned int add_file_tex_id = 0;
+
+    bool add_file_button_clicked =
+        add_image_button("../../assets/open_file_icon.png", &add_file_tex_id, image_button_size);
 
     ImGui::SameLine();
 
-    if (ImGui::Button("Load a .srt file")) {
+    bool insert_timestamp_button_clicked =
+        add_image_button("../../assets/plus.png", &add_timestamp_button_tex_id, image_button_size);
+
+    ImGui::SameLine();
+
+    bool is_refresh_clicked = add_image_button(
+        "../../assets/reload_button.png", &refresh_button_tex_id, image_button_size);
+
+    if (add_file_button_clicked) {
+        m_active_srt_file = "../../assets/test_videos/test_video.srt";
+        subtitle_player->open_srt_file(m_active_srt_file);
+        is_subtitle_open = true;
+    }
+
+    if (is_refresh_clicked && is_subtitle_open) {
+        subtitle_player->update_subtitles(m_active_srt_file);
+    }
+
+    if (insert_timestamp_button_clicked) {
+        const std::string current_timestamp = VideoPlayer::get_current_timestamp_str();
+        m_subtitle->content += current_timestamp + "\n";
     }
 
     const auto& window_size = ImGui::GetWindowSize();
@@ -35,10 +137,31 @@ void SceneEditor::render_subtitles_window()
 
     const auto input_box_size = ImVec2(window_size.x * 0.80f, window_size.y * 0.75f);
 
-    ImGui::InputTextMultiline("##subtitle_input", m_subtitle_input_buffer.data(),
-        SUBTITLES_BUFFER_SIZE, input_box_size, ImGuiInputTextFlags_None);
+    // Create a buffer to be used for InputTextMultiline
+    std::vector<char> input_buffer(m_subtitle->content.begin(), m_subtitle->content.end());
+    input_buffer.resize(SUBTITLES_BUFFER_SIZE);
+
+    bool is_updated = ImGui::InputTextMultiline("##subtitle_input", input_buffer.data(),
+        input_buffer.size(), input_box_size, ImGuiInputTextFlags_AllowTabInput);
+
+    if (is_updated) {
+        m_subtitle->content = std::string(input_buffer.data());
+    }
 
     ImGui::PopStyleColor();
+
+    std::string word_count_display_content =
+        "Words: " + std::to_string(m_subtitle->number_of_words) + ", ";
+
+    std::string number_of_dialogues = "Dialogues: " + std::to_string(m_subtitle->total_dialogue_nb);
+
+    ImGui::Text(word_count_display_content.c_str());
+    ImGui::SameLine();
+    ImGui::Text(number_of_dialogues.c_str());
+
+    if (ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
+        modify_srt_file(m_subtitle->content);
+    }
 
     ImGui::End();
 }
