@@ -11,6 +11,7 @@ class SubtitlePlayer;
 struct SubtitleEditor;
 
 constexpr std::size_t SUBTITLES_BUFFER_SIZE = 4096;
+constexpr auto SUBTITLE_EDITOR_INPUT_FLAGS = ImGuiInputTextFlags_AllowTabInput;
 
 struct Transition;
 
@@ -19,6 +20,12 @@ using TransitionCache = std::unordered_map<std::string, Transition>;
 struct Transition {
     double start_timestamp;
     double end_timestamp;
+};
+
+struct SubtitleEditorUserData {
+    std::unique_ptr<SubtitleEditor> subtitle_editor = nullptr;
+    std::vector<char> input_buffer = {};
+    bool needs_update = false;
 };
 
 class SceneEditor
@@ -41,7 +48,10 @@ public:
 
     inline void update_input_buffer(const SubtitleEditor* input)
     {
-        *m_subtitle = *input;
+        auto& subtitle = m_subtitle_editor_user_data.subtitle_editor;
+        subtitle->content = input->content;
+        subtitle->number_of_words = input->number_of_words;
+        subtitle->total_dialogue_nb = input->total_dialogue_nb;
     }
 
     std::unique_ptr<SubtitlePlayer> subtitle_player;
@@ -54,7 +64,9 @@ private:
     void modify_srt_file(const std::string& new_file_data);
 
     TransitionCache m_transition_map;
-    std::unique_ptr<SubtitleEditor> m_subtitle;
     std::string m_active_srt_file;
+
+private:
+    SubtitleEditorUserData m_subtitle_editor_user_data;
 };
 } // namespace YAVE

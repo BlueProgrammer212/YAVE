@@ -88,7 +88,7 @@ int SubtitlePlayer::callback(void* userdata)
     static auto empty_subtitles = new SubtitleGizmo();
 
     // Synchronize the video and the subtitles.
-    for (int n = 0; Application::is_running && s_SubtitleGizmos.size() > 0;) {
+    for (int n = 0; Application::is_running;) {
         const double master_clock = AudioPlayer::get_video_internal_clock();
         bool is_subtitle_present = false;
 
@@ -121,6 +121,8 @@ int SubtitlePlayer::callback(void* userdata)
         }
 
         const float delta_timestamp = end_timestamp - static_cast<float>(master_clock);
+
+        // TODO: Calculate the actual delay by using the average video framerate.
         SDL_Delay(100);
     }
 

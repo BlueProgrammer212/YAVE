@@ -549,6 +549,7 @@ int VideoPlayer::video_callback(void* data)
 
         if (decode_video_frame(video_state, video_packet) != 0) {
             SDL_UnlockMutex(PacketQueue::mutex);
+            av_packet_unref(video_packet);
             continue;
         };
 
@@ -607,7 +608,17 @@ int VideoPlayer::enqueue_packets(void* data)
             break;
         }
 
+        SDL_LockMutex(PacketQueue::mutex);
+
         const int& response = av_read_frame(av_format_ctx, s_LatestPacket);
+
+        if (video_state->flags & VideoFlags::IS_PAUSED) {
+            SDL_CondWait(PacketQueue::video_paused_cond, PacketQueue::mutex);
+            SDL_UnlockMutex(PacketQueue::mutex);
+            continue;
+        }
+
+        SDL_UnlockMutex(PacketQueue::mutex);
 
         if (response == AVERROR_EOF) {
             continue;
@@ -696,7 +707,7 @@ void VideoPlayer::pause_video()
     pause_audio();
 
     if (PacketQueue::video_paused_cond) {
-        SDL_CondSignal(PacketQueue::video_paused_cond);
+        SDL_CondBroadcast(PacketQueue::video_paused_cond);
     }
 }
 

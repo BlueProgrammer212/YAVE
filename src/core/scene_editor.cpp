@@ -4,7 +4,10 @@ namespace YAVE
 {
 SceneEditor::SceneEditor()
     : subtitle_player(std::make_unique<SubtitlePlayer>())
-    , m_subtitle(std::make_unique<SubtitleEditor>()){};
+{
+    m_subtitle_editor_user_data.input_buffer.resize(SUBTITLES_BUFFER_SIZE);
+    m_subtitle_editor_user_data.subtitle_editor = std::make_unique<SubtitleEditor>();
+};
 
 void SceneEditor::init() {}
 
@@ -54,8 +57,11 @@ bool SceneEditor::add_image_button(const std::string& src, unsigned int* tex_id_
             ImGui::ColorConvertFloat4ToU32(button_bg_color), default_button_border_radius);
 
         glBindTexture(GL_TEXTURE_2D, *tex_id_ptr);
-        draw_list->AddImage(
-            reinterpret_cast<ImTextureID>(*tex_id_ptr), min + default_button_padding, min + size);
+
+        const auto tex_id_converted = static_cast<std::uintptr_t>(*tex_id_ptr);
+
+        draw_list->AddImage(reinterpret_cast<ImTextureID>(tex_id_converted),
+            min + default_button_padding, min + size);
 
         ImGui::Dummy(size + default_button_padding);
         glBindTexture(GL_TEXTURE_2D, 0);
@@ -102,6 +108,8 @@ void SceneEditor::render_subtitles_window()
     static unsigned int add_timestamp_button_tex_id = 0;
     static unsigned int add_file_tex_id = 0;
 
+    static bool needs_buffer_update = true;
+
     bool add_file_button_clicked =
         add_image_button("../../assets/open_file_icon.png", &add_file_tex_id, image_button_size);
 
@@ -118,49 +126,61 @@ void SceneEditor::render_subtitles_window()
     if (add_file_button_clicked) {
         m_active_srt_file = "../../assets/test_videos/test_video.srt";
         subtitle_player->open_srt_file(m_active_srt_file);
+        needs_buffer_update = true;
         is_subtitle_open = true;
     }
 
     if (is_refresh_clicked && is_subtitle_open) {
         subtitle_player->update_subtitles(m_active_srt_file);
-    }
-
-    if (insert_timestamp_button_clicked) {
-        const std::string current_timestamp = VideoPlayer::get_current_timestamp_str();
-        m_subtitle->content += current_timestamp + "\n";
+        needs_buffer_update = true;
     }
 
     const auto& window_size = ImGui::GetWindowSize();
+    const auto input_box_size = ImVec2(window_size.x * 0.80f, window_size.y * 0.75f);
 
     ImGui::PushStyleColor(
         ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(Color::SUBTITLE_BACKGROUND_COLOR));
 
-    const auto input_box_size = ImVec2(window_size.x * 0.80f, window_size.y * 0.75f);
+    auto& [subtitle_editor, input_buffer, needs_update] = m_subtitle_editor_user_data;
 
-    // Create a buffer to be used for InputTextMultiline
-    std::vector<char> input_buffer(m_subtitle->content.begin(), m_subtitle->content.end());
-    input_buffer.resize(SUBTITLES_BUFFER_SIZE);
+    if (needs_buffer_update) {
+        // The input buffer needs to be cleared to ensure that null-termination characters are not
+        // appended to random indexes.
+        std::fill(input_buffer.begin(), input_buffer.end(), '\0');
+        const auto& content = m_subtitle_editor_user_data.subtitle_editor->content;
+        std::copy(content.begin(), content.end(), input_buffer.begin());
+        needs_buffer_update = false;
+    }
 
-    bool is_updated = ImGui::InputTextMultiline("##subtitle_input", input_buffer.data(),
-        input_buffer.size(), input_box_size, ImGuiInputTextFlags_AllowTabInput);
+    bool is_updated = ImGui::InputTextMultiline("##subtitle_editor", input_buffer.data(),
+        input_buffer.size(), input_box_size, SUBTITLE_EDITOR_INPUT_FLAGS);
 
     if (is_updated) {
-        m_subtitle->content = std::string(input_buffer.data());
+        std::size_t len = strnlen(input_buffer.data(), input_buffer.size());
+        subtitle_editor->content = std::string(input_buffer.data(), len);
+        needs_update = true;
+    }
+
+    if (insert_timestamp_button_clicked) {
+        const std::string current_timestamp = VideoPlayer::get_current_timestamp_str();
+        m_subtitle_editor_user_data.subtitle_editor->content += current_timestamp;
+        needs_buffer_update = true;
     }
 
     ImGui::PopStyleColor();
 
     std::string word_count_display_content =
-        "Words: " + std::to_string(m_subtitle->number_of_words) + ", ";
-
-    std::string number_of_dialogues = "Dialogues: " + std::to_string(m_subtitle->total_dialogue_nb);
+        "Words: " + std::to_string(m_subtitle_editor_user_data.subtitle_editor->number_of_words) +
+        ", ";
+    std::string number_of_dialogues = "Dialogues: " +
+        std::to_string(m_subtitle_editor_user_data.subtitle_editor->total_dialogue_nb);
 
     ImGui::Text(word_count_display_content.c_str());
     ImGui::SameLine();
     ImGui::Text(number_of_dialogues.c_str());
 
     if (ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
-        modify_srt_file(m_subtitle->content);
+        modify_srt_file(m_subtitle_editor_user_data.subtitle_editor->content);
     }
 
     ImGui::End();
@@ -175,7 +195,6 @@ void SceneEditor::render_transition_window()
 
 void SceneEditor::render_settings_window()
 {
-
     ImGui::Begin("Settings");
 
     ImGui::End();
