@@ -72,6 +72,7 @@ public:
     static SDL_mutex* mutex;
     static SDL_cond* video_paused_cond;
     static SDL_cond* packet_availability_cond;
+    static SDL_cond* input_availability_cond;
 
     static bool start_audio_dequeue;
 

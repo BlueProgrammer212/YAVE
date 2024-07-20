@@ -30,6 +30,7 @@ include_directories(
 
 file (GLOB SOURCES 
       "src/*.cpp"
+      "src/*.c"
       "src/imgui/*.cpp" 
       "src/core/*.cpp"
       "src/core/backend/*.cpp"

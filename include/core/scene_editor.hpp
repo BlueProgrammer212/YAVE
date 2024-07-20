@@ -3,6 +3,7 @@
 #include "application.hpp"
 #include "color.hpp"
 #include "core/backend/subtitle_player.hpp"
+#include "core/file_explorer.hpp"
 #include "stb_image.h"
 
 namespace YAVE
@@ -10,7 +11,7 @@ namespace YAVE
 class SubtitlePlayer;
 struct SubtitleEditor;
 
-constexpr std::size_t SUBTITLES_BUFFER_SIZE = 4096;
+constexpr std::size_t SUBTITLES_BUFFER_SIZE = 32768;
 constexpr auto SUBTITLE_EDITOR_INPUT_FLAGS = ImGuiInputTextFlags_AllowTabInput;
 
 struct Transition;

@@ -4,26 +4,36 @@ namespace YAVE
 {
 std::shared_ptr<VideoPlayer> SubtitlePlayer::video_processor = nullptr;
 decltype(SubtitlePlayer::s_SubtitleGizmos) SubtitlePlayer::s_SubtitleGizmos = {};
+SDL_cond* SubtitlePlayer::s_SubtitleAvailabilityCond = nullptr;
 
 SubtitlePlayer::SubtitlePlayer()
     : m_decoding_thread(nullptr)
+    , m_is_thread_active(false)
 {
+    s_SubtitleAvailabilityCond = SDL_CreateCond();
+
+    if (!s_SubtitleAvailabilityCond) {
+        std::cerr << "[Subtitle Player]: Failed to create a conditional variable.\n";
+    }
 }
 
 SubtitlePlayer::SubtitlePlayer(const std::string& input_file_path)
     : m_parser_factory(std::make_unique<SubtitleParserFactory>(input_file_path.c_str()))
     , m_decoding_thread(nullptr)
+    , m_is_thread_active(false)
 {
     open_srt_file(input_file_path);
+
+    s_SubtitleAvailabilityCond = SDL_CreateCond();
+
+    if (!s_SubtitleAvailabilityCond) {
+        std::cerr << "[Subtitle Player]: Failed to create a conditional variable.\n";
+    }
 }
 
 SubtitlePlayer::~SubtitlePlayer()
 {
-    // Manual deallocation of subtitle gizmos.
-    for (auto* gizmo : s_SubtitleGizmos) {
-        delete gizmo;
-        gizmo = nullptr;
-    }
+    SDL_DestroyCond(s_SubtitleAvailabilityCond);
 };
 
 void SubtitlePlayer::update_subtitles(const std::string& input_file_path)
@@ -40,7 +50,7 @@ void SubtitlePlayer::update_subtitles(const std::string& input_file_path)
             return sum + current_subtitle->getWordCount();
         });
 
-    subtitle_editor_ptr->total_dialogue_nb = m_subtitles.size();
+    subtitle_editor_ptr->total_dialogue_nb = static_cast<unsigned int>(m_subtitles.size());
 
     request_srt_editor_load(subtitle_editor_ptr.release());
 
@@ -48,21 +58,28 @@ void SubtitlePlayer::update_subtitles(const std::string& input_file_path)
     s_SubtitleGizmos.reserve(m_subtitles.size());
 
     std::for_each(m_subtitles.begin(), m_subtitles.end(), [&](const auto& current_subtitle) {
-        auto gizmo = new SubtitleGizmo();
+        auto gizmo = std::make_shared<SubtitleGizmo>();
         gizmo->content = current_subtitle->getDialogue();
         gizmo->pts = static_cast<float>(current_subtitle->getStartTime());
         gizmo->duration = current_subtitle->getEndTime() - gizmo->pts;
 
         s_SubtitleGizmos.push_back(gizmo);
     });
+
+    SDL_CondBroadcast(s_SubtitleAvailabilityCond);
 }
 
 void SubtitlePlayer::open_srt_file(const std::string& input_file_path)
 {
     update_subtitles(input_file_path);
 
-    m_decoding_thread =
-        SDL_CreateThread(&SubtitlePlayer::callback, "Subtitle Decoding Thread", &m_subtitles);
+    // Check if the decoding thread is already up and running.
+    if (!m_is_thread_active) {
+        m_decoding_thread =
+            SDL_CreateThread(&SubtitlePlayer::callback, "Subtitle Decoding Thread", &m_subtitles);
+
+        m_is_thread_active = true;
+    }
 }
 
 void SubtitlePlayer::request_srt_editor_load(SubtitleEditor* data)
@@ -74,21 +91,32 @@ void SubtitlePlayer::request_srt_editor_load(SubtitleEditor* data)
     SDL_PushEvent(&srt_load_event);
 }
 
-void SubtitlePlayer::request_subtitle_gizmo_refresh(SubtitleGizmo* subtitle_gizmo)
+void SubtitlePlayer::request_subtitle_gizmo_refresh(
+    decltype(s_SubtitleGizmos)::value_type subtitle_gizmo)
 {
     SDL_Event refresh_event;
     refresh_event.type = CustomVideoEvents::FF_REFRESH_SUBTITLES;
-    refresh_event.user.data1 = subtitle_gizmo;
+    refresh_event.user.data1 = subtitle_gizmo.get();
     SDL_PushEvent(&refresh_event);
 }
 
 int SubtitlePlayer::callback(void* userdata)
 {
     auto* subtitles = static_cast<std::vector<SubtitleItem*>*>(userdata);
-    static auto empty_subtitles = new SubtitleGizmo();
+    static auto empty_subtitles = std::make_shared<SubtitleGizmo>();
 
     // Synchronize the video and the subtitles.
     for (int n = 0; Application::is_running;) {
+        SDL_LockMutex(PacketQueue::mutex);
+
+        if (s_SubtitleGizmos.empty()) {
+            SDL_CondWait(s_SubtitleAvailabilityCond, PacketQueue::mutex);
+            SDL_UnlockMutex(PacketQueue::mutex);
+            continue;
+        }
+
+        SDL_UnlockMutex(PacketQueue::mutex);
+
         const double master_clock = AudioPlayer::get_video_internal_clock();
         bool is_subtitle_present = false;
 

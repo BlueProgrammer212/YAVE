@@ -30,7 +30,7 @@ public:
     ~SubtitlePlayer();
 
     static std::shared_ptr<VideoPlayer> video_processor;
-    static std::vector<SubtitleGizmo*> s_SubtitleGizmos;
+    static std::vector<std::shared_ptr<SubtitleGizmo>> s_SubtitleGizmos;
     static int callback(void* userdata);
 
     void update_subtitles(const std::string& input_file_path);
@@ -47,14 +47,18 @@ public:
         SubtitlePlayer::video_processor = video_processor;
     }
 
-    static void request_subtitle_gizmo_refresh(SubtitleGizmo* subtitle_gizmo);
+    static void request_subtitle_gizmo_refresh(
+        decltype(s_SubtitleGizmos)::value_type subtitle_gizmo);
+
     static void request_srt_editor_load(SubtitleEditor* data);
 
     void srt_refresh();
 
 private:
+    static SDL_cond* s_SubtitleAvailabilityCond;
     std::unique_ptr<SubtitleParserFactory> m_parser_factory;
     std::vector<SubtitleItem*> m_subtitles;
+    bool m_is_thread_active;
 
 private:
     SDL_Thread* m_decoding_thread;

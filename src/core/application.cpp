@@ -143,7 +143,7 @@ std::string Application::configure_sdl()
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
         SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
 #endif
-
+ 
     const char* glsl_version = "#version 430 core";
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);

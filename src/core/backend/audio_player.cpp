@@ -302,7 +302,6 @@ void AudioPlayer::audio_callback(void* t_userdata, Uint8* stream, int len)
 
         if (result < 0) {
             std::memset(stream, 0, len);
-            len = 0;
             break;
         }
 

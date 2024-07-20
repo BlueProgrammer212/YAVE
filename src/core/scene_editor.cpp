@@ -124,10 +124,13 @@ void SceneEditor::render_subtitles_window()
         "../../assets/reload_button.png", &refresh_button_tex_id, image_button_size);
 
     if (add_file_button_clicked) {
-        m_active_srt_file = "../../assets/test_videos/test_video.srt";
-        subtitle_player->open_srt_file(m_active_srt_file);
-        needs_buffer_update = true;
-        is_subtitle_open = true;
+        m_active_srt_file = FileExplorer::launch("C:\\Users\\yayma\\", { "*.srt" });
+
+        if (!m_active_srt_file.empty()) {
+            subtitle_player->open_srt_file(m_active_srt_file);
+            needs_buffer_update = true;
+            is_subtitle_open = true;
+        }
     }
 
     if (is_refresh_clicked && is_subtitle_open) {

@@ -271,10 +271,16 @@ int VideoPlayer::play_video(AVRational* timebase)
 
     PacketQueue::video_paused_cond = SDL_CreateCond();
     PacketQueue::packet_availability_cond = SDL_CreateCond();
+    PacketQueue::input_availability_cond = SDL_CreateCond();
 
-    if (!PacketQueue::video_paused_cond || !PacketQueue::packet_availability_cond) {
+    if (!PacketQueue::video_paused_cond || !PacketQueue::packet_availability_cond ||
+        !PacketQueue::input_availability_cond) {
         std::cerr << "Failed to create a condition variable: " << SDL_GetError() << "\n";
         SDL_DestroyMutex(PacketQueue::mutex);
+        SDL_DestroyCond(PacketQueue::video_paused_cond);
+        SDL_DestroyCond(PacketQueue::packet_availability_cond);
+        SDL_DestroyCond(PacketQueue::input_availability_cond);
+
         return -1;
     }
 
@@ -614,15 +620,15 @@ int VideoPlayer::enqueue_packets(void* data)
 
         if (video_state->flags & VideoFlags::IS_PAUSED) {
             SDL_CondWait(PacketQueue::video_paused_cond, PacketQueue::mutex);
+        }
+
+        if (response == AVERROR_EOF) {
+            SDL_CondWait(PacketQueue::input_availability_cond, PacketQueue::mutex);
             SDL_UnlockMutex(PacketQueue::mutex);
             continue;
         }
 
         SDL_UnlockMutex(PacketQueue::mutex);
-
-        if (response == AVERROR_EOF) {
-            continue;
-        }
 
         if (response < 0) {
             std::cerr << "Failed to decode the frames: " << av_error_to_string(response) << "\n";
@@ -683,6 +689,8 @@ int VideoPlayer::seek_frame(float seconds, bool should_update_framebuffer)
         }
 
         avcodec_flush_buffers(stream_info->av_codec_ctx);
+    
+        SDL_CondBroadcast(PacketQueue::input_availability_cond);
     }
 
     s_ClockNetwork->video_internal_clock = seconds;
