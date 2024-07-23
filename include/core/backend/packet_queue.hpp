@@ -69,10 +69,8 @@ public:
         return m_packet_deque.back();
     }
 
-    static SDL_mutex* mutex;
-    static SDL_cond* video_paused_cond;
-    static SDL_cond* packet_availability_cond;
-    static SDL_cond* input_availability_cond;
+    static SDL_mutex* s_GlobalMutex;
+    static SDL_cond* s_PacketAvailabilityCond;
 
     static bool start_audio_dequeue;
 

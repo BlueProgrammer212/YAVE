@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SDL.h>
+#include <optional>
 #include <thread>
 
 #include "core/backend/video_loader.hpp"
@@ -130,7 +131,7 @@ struct ClockNetwork {
 class AudioPlayer
 {
 public:
-    virtual ~AudioPlayer(){};
+    virtual ~AudioPlayer() {};
     AudioPlayer();
 
     static StreamMap s_StreamList;
@@ -185,6 +186,15 @@ public:
      */
     static int update_audio_stream(AudioState* userdata, Uint8* sdl_stream, int& len);
 
+    /**
+     * @brief Recurses until we get a valid audio frame.
+     * @param packet
+     * @param frame
+     * @return A pointer to an AVFrame if it's sucessful, and std::nullopt for failure.
+     */
+    [[nodiscard]] std::optional<AVFrame*> get_first_audio_frame(
+        AVFormatContext* av_format_context, AVPacket* dummy_packet, AVFrame* dummy_frame);
+
 #pragma region Helper Functions
     /**
      * @brief Converts planar audio data to an interleaved audio data.
@@ -222,7 +232,7 @@ public:
         return s_AudioPacketQueue;
     }
 
-    [[nodiscard]] static inline const double& get_video_internal_clock()
+    [[nodiscard]] static inline double& get_video_internal_clock()
     {
         return s_ClockNetwork->video_internal_clock;
     }
@@ -247,6 +257,10 @@ public:
 
     static std::unique_ptr<AudioBufferInfo> s_AudioBufferInfo;
     static std::unique_ptr<PacketQueue> s_AudioPacketQueue;
+
+    static SDL_cond* s_FrameAvailabilityCond;
+    static SDL_cond* s_VideoPausedCond;
+    static SDL_cond* s_VideoAvailabilityCond;
 
 protected:
     /**

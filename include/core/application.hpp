@@ -63,12 +63,18 @@ public:
     Application();
     ~Application();
 
-    void preview_video(const std::string& filename);
+    static void open_first_video(
+        const std::string& filename, std::shared_ptr<VideoPlayer> video_player);
+    void enqueue_video_request(const std::string& filename, const float timestamp);
+    void add_segment_to_timeline(const std::string& filename);
+    [[nodiscard]] const std::int64_t get_file_duration(const std::string& filename) const;
+
+    static void on_video_end_callback();
 
     int init();
     int init_imgui(std::string version);
     void init_video_processor();
-    void init_video_texture();
+    static void init_video_texture();
     std::string configure_sdl();
 
     void update();
@@ -76,6 +82,7 @@ public:
     void render();
     void render_video_preview();
     void render_subtitles(const ImVec2& min, const ImVec2& max);
+    static int file_loading_listener(void* userdata);
 
 public:
     void handle_events();
@@ -96,8 +103,8 @@ public:
     static bool is_running;
 
 private:
-    unsigned int m_frame_tex_id = 0;
-    int m_preferred_image_format = 0;
+    static unsigned int s_FrameTexID;
+    static int s_PreferredImageFormat;
 
     [[nodiscard]] std::string get_requested_url(void* userdata);
 
@@ -106,11 +113,15 @@ private:
     std::unique_ptr<ThumbnailLoader> m_thumbnail_loader;
     std::unique_ptr<WaveformLoader> m_waveform_loader;
     std::unique_ptr<SubtitleGizmo> m_current_subtitle_gizmo;
-    UIStyleConfig m_style_config;
 
+private:
+    bool has_loaded_a_video = true;
+    SDL_Thread* m_video_loading_thread;
+
+    UIStyleConfig m_style_config;
+    VideoResolution m_video_size;
     SDL_Event m_event;
 
-    VideoResolution m_video_size;
-    AVRational m_time_base;
+    static AVRational s_Timebase;
 };
 } // namespace YAVE

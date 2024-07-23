@@ -1,12 +1,13 @@
 #include "core/backend/video_player.hpp"
+#include "core/application.hpp"
 
 namespace YAVE
 {
 std::unique_ptr<PacketQueue> VideoPlayer::s_VideoPacketQueue = std::make_unique<PacketQueue>();
+VideoQueue VideoPlayer::s_VideoFileQueue = {};
 
 VideoPlayer::VideoPlayer(SampleRate t_sample_rate)
     : m_video_state(std::make_shared<VideoState>())
-    , m_hw_device_ctx(nullptr)
 {
     m_audio_state->sample_rate = t_sample_rate;
     SDL_RegisterEvents(8);
@@ -82,9 +83,6 @@ int VideoPlayer::create_context_for_stream(StreamInfoPtr& stream_info)
         return -1;
     }
 
-    // Enable hardware acceleration.
-    // init_hwaccel_decoder(stream_info->av_codec_ctx, AV_HWDEVICE_TYPE_OPENCL);
-
     if (avcodec_open2(stream_info->av_codec_ctx, stream_info->av_codec, nullptr) < 0) {
         std::cout << "Failed to open the codec using avcodec_open2.\n";
         return -1;
@@ -110,9 +108,9 @@ int VideoPlayer::init_sws_scaler_ctx(VideoState* video_state)
     auto& height = video_state->dimensions.y;
 
     // Convert planar YUV 4:2:0 pixel format to packed RGB 8:8:8 pixel format
-    // with bicubic rescaling algorithm.
+    // with bilinear rescaling algorithm.
     sws_scaler_ctx = sws_getContext(width, height, stream_info->av_codec_ctx->pix_fmt, width,
-        height, AV_PIX_FMT_RGB0, SWS_BICUBIC, nullptr, nullptr, nullptr);
+        height, AV_PIX_FMT_RGB0, SWS_BILINEAR, nullptr, nullptr, nullptr);
 
     if (!sws_scaler_ctx) {
         std::cout << "Failed to initialize the sw scaler.\n";
@@ -143,75 +141,91 @@ int VideoPlayer::allocate_frame_buffer(AVPixelFormat pix_fmt, VideoDimension dim
     return 0;
 }
 
-int VideoPlayer::init_hwaccel_decoder(AVCodecContext* ctx, const enum AVHWDeviceType type)
+int VideoPlayer::init_mutex()
 {
-    if (m_video_state->flags & VideoFlags::IS_HWACCEL_INITIALIZED) {
+    static bool is_initialized = false;
+
+    if (is_initialized) {
         return 0;
     }
 
-    ctx->get_format = get_hw_format;
+    is_initialized = true;
 
-    int err = 0;
-
-    if ((err = av_hwdevice_ctx_create(&m_hw_device_ctx, type, nullptr, nullptr, 0)) < 0) {
-        std::cerr << "Failed to create specified HW device.\n";
-        return err;
+    PacketQueue::s_GlobalMutex = SDL_CreateMutex();
+    if (!PacketQueue::s_GlobalMutex) {
+        std::cerr << "Failed to create a mutex: " << SDL_GetError() << "\n";
+        return -1;
     }
 
-    m_video_state->flags |= VideoFlags::IS_HWACCEL_INITIALIZED;
+    s_VideoPausedCond = SDL_CreateCond();
+    s_FrameAvailabilityCond = SDL_CreateCond();
+    PacketQueue::s_PacketAvailabilityCond = SDL_CreateCond();
 
-    ctx->hw_device_ctx = av_buffer_ref(m_hw_device_ctx);
-    return err;
+    if (!s_VideoPausedCond || !PacketQueue::s_PacketAvailabilityCond || !s_FrameAvailabilityCond) {
+        std::cerr << "Failed to create a condition variable: " << SDL_GetError() << "\n";
+        SDL_DestroyMutex(PacketQueue::s_GlobalMutex);
+        SDL_DestroyCond(s_VideoPausedCond);
+        SDL_DestroyCond(s_FrameAvailabilityCond);
+        SDL_DestroyCond(PacketQueue::s_PacketAvailabilityCond);
+
+        return -1;
+    }
+
+    return 0;
 }
 
 #pragma endregion Init Functions
 
-#pragma region Hardware Acceleration
-
-AVPixelFormat VideoPlayer::get_hw_format(AVCodecContext* ctx, const AVPixelFormat* pix_fmts)
+#pragma region Helper Functions
+[[nodiscard]] int VideoPlayer::get_nb_samples_per_frame(AVPacket* packet, AVFrame* frame)
 {
+    std::optional<AVFrame*> first_audio_frame =
+        get_first_audio_frame(m_video_state->av_format_ctx, packet, frame);
 
-    for (const AVPixelFormat* p = pix_fmts; *p != -1; p++) {
-        if (*p != AV_PIX_FMT_DXVA2_VLD) {
-            continue;
-        }
+    seek_frame(0.0);
 
-        return AV_PIX_FMT_DXVA2_VLD;
+    if (first_audio_frame.has_value()) {
+        return first_audio_frame.value()->nb_samples;
     }
 
-    std::cerr << "Failed to get DXVA2 hardware surface format.\n";
-    return AV_PIX_FMT_NONE;
+    return DEFAULT_SAMPLES_BUFFER_SIZE;
 }
-
-#pragma endregion Hardware Acceleration
 
 #pragma region Video Reader
 
-int VideoPlayer::open_video(const char* filename)
+int VideoPlayer::allocate_video(const char* filename)
 {
-    SDL_LockMutex(PacketQueue::mutex);
+    SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
     auto& flags = m_video_state->flags;
     auto& av_format_ctx = m_video_state->av_format_ctx;
 
+
     if (flags & VideoFlags::IS_INITIALIZED) {
-        flags |= VideoFlags::IS_INPUT_CHANGED;
-
-        stop_threads();
-        reset_video_state();
-
-        // Reset the audio state.
-        m_audio_state->pts = 0.0;
-        m_audio_state->audio_diff_avg_count = 0;
-        m_audio_state->delta_accum = 0;
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
+        return 0;
     }
 
-    if (!m_loader->allocate_format_context(&m_video_state->av_format_ctx, std::string(filename))) {
-        std::cout << "Failed to allocate memory for the format context.\n";
+    // Allocate only one format context for the video player.
+    static bool is_format_context_allocated = false;
+
+    if (!is_format_context_allocated) {
+        av_format_ctx = avformat_alloc_context();
+
+        if (!av_format_ctx) {
+            std::cout << "Failed to allocate memory for the format context.\n";
+            return -1;
+        };
+
+        is_format_context_allocated = true;
+    }
+
+    if (avformat_open_input(&av_format_ctx, filename, nullptr, nullptr) < 0) {
+        std::cout << "[Video Player]: Failed to open the specified input.\n";
         return -1;
     };
 
-    opened_file = filename;
+    m_opened_file = filename;
     m_duration = av_format_ctx->duration;
     m_video_state->flags |= VideoFlags::IS_INPUT_ACTIVE;
 
@@ -224,18 +238,14 @@ int VideoPlayer::open_video(const char* filename)
         }
     }
 
-    s_LatestFrame = av_frame_alloc();
-    s_LatestPacket = av_packet_alloc();
-
     if (!s_LatestFrame || !s_LatestPacket) {
-        std::cout << "Failed to allocate memory for AVFrame and AVPacket.\n";
-        return -1;
+        s_LatestFrame = av_frame_alloc();
+        s_LatestPacket = av_packet_alloc();
     }
 
     m_video_state->flags |= VideoFlags::IS_INITIALIZED;
 
-    SDL_UnlockMutex(PacketQueue::mutex);
-
+    SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
     return 0;
 }
 
@@ -256,99 +266,47 @@ int VideoPlayer::play_video(AVRational* timebase)
         return -1;
     }
 
-    *timebase = video_stream_info->timebase;
+    if (timebase != nullptr) {
+        *timebase = video_stream_info->timebase;
+    }
 
     m_video_state->is_first_frame = true;
 
     AVPacket* packet_for_first_frame = av_packet_alloc();
     AVFrame* first_frame = av_frame_alloc();
 
-    PacketQueue::mutex = SDL_CreateMutex();
-    if (!PacketQueue::mutex) {
-        std::cerr << "Failed to create a mutex: " << SDL_GetError() << "\n";
+    if (init_mutex() < 0) {
         return -1;
-    }
+    };
 
-    PacketQueue::video_paused_cond = SDL_CreateCond();
-    PacketQueue::packet_availability_cond = SDL_CreateCond();
-    PacketQueue::input_availability_cond = SDL_CreateCond();
-
-    if (!PacketQueue::video_paused_cond || !PacketQueue::packet_availability_cond ||
-        !PacketQueue::input_availability_cond) {
-        std::cerr << "Failed to create a condition variable: " << SDL_GetError() << "\n";
-        SDL_DestroyMutex(PacketQueue::mutex);
-        SDL_DestroyCond(PacketQueue::video_paused_cond);
-        SDL_DestroyCond(PacketQueue::packet_availability_cond);
-        SDL_DestroyCond(PacketQueue::input_availability_cond);
-
-        return -1;
-    }
-
-    std::optional<AVFrame*> first_audio_frame =
-        get_first_audio_frame(packet_for_first_frame, first_frame);
-
-    const auto nb_samples = [&]() -> int {
-        if (first_audio_frame.has_value()) {
-            return first_audio_frame.value()->nb_samples;
-        }
-
-        return DEFAULT_SAMPLES_BUFFER_SIZE;
-    }();
-
-    // After obtaining the first frame, it's important to reset the timestamp.
-    this->seek_frame(0.0);
-
+    const int nb_samples_per_frame = get_nb_samples_per_frame(packet_for_first_frame, first_frame);
     const int AV_STEREO_CHANNEL_NB = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
 
-    if (init_sdl_mixer(AV_STEREO_CHANNEL_NB, nb_samples) != 0) {
+    // Ensure that the audio thread is finished before opening a new audio device to update the
+    // desired audio specs.
+    if (m_video_state->flags & VideoFlags::IS_DECODING_THREAD_ACTIVE) {
+        SDL_CloseAudioDevice(m_device_info->device_id);
+    }
+
+    if (init_sdl_mixer(AV_STEREO_CHANNEL_NB, nb_samples_per_frame) != 0) {
         return -1;
     };
 
     av_packet_free(&packet_for_first_frame);
     av_frame_free(&first_frame);
 
+    SDL_CondBroadcast(s_FrameAvailabilityCond);
+
     // Start the decoding and video threads.
+    if (m_video_state->flags & VideoFlags::IS_DECODING_THREAD_ACTIVE) {
+        return 0;
+    }
+
     m_video_tid = SDL_CreateThread(&video_callback, "Video Thread", m_video_state.get());
     m_decoding_tid = SDL_CreateThread(&enqueue_packets, "Decoding Thread", m_video_state.get());
+    m_video_state->flags |= VideoFlags::IS_DECODING_THREAD_ACTIVE;
 
     return 0;
-}
-
-std::optional<AVFrame*> VideoPlayer::get_first_audio_frame(
-    AVPacket* dummy_packet, AVFrame* dummy_frame, int retry_count)
-{
-    constexpr int MAX_NUMBER_OF_ATTEMPTS = 1000;
-
-    if (retry_count > MAX_NUMBER_OF_ATTEMPTS) {
-        return std::nullopt;
-    }
-
-    static const auto& stream_info = s_StreamList.at("Audio");
-
-    int response = av_read_frame(m_video_state->av_format_ctx, dummy_packet);
-
-    if (response < 0) {
-        goto repeat;
-    }
-
-    // Send the packet to the decoder.
-    response = avcodec_send_packet(stream_info->av_codec_ctx, dummy_packet);
-
-    if (response < 0) {
-        goto repeat;
-    }
-
-    response = avcodec_receive_frame(stream_info->av_codec_ctx, dummy_frame);
-
-    if (response < 0) {
-        goto repeat;
-    }
-
-    return dummy_frame;
-
-repeat:
-    av_packet_unref(dummy_packet);
-    return get_first_audio_frame(dummy_packet, dummy_frame, ++retry_count);
 }
 
 #pragma endregion Video Reader
@@ -428,14 +386,14 @@ double VideoPlayer::calculate_reference_clock()
 
 double VideoPlayer::calculate_actual_delay(VideoState* video_state, double& frame_timer)
 {
-    double delay = video_state->pts - video_state->last_pts;
+    double delay = video_state->pts - video_state->previous_pts;
 
     if (delay <= 0 || delay >= 1.0) {
-        delay = video_state->last_delay;
+        delay = video_state->previous_delay;
     }
 
-    video_state->last_delay = delay;
-    video_state->last_pts = video_state->pts;
+    video_state->previous_delay = delay;
+    video_state->previous_pts = video_state->pts;
 
     const double current_time = av_gettime() / static_cast<double>(AV_TIME_BASE);
 
@@ -530,38 +488,35 @@ int VideoPlayer::video_callback(void* data)
 {
     auto* video_state = static_cast<VideoState*>(data);
 
-    AVPacket* video_packet = av_packet_alloc();
+    AVPacket video_packet;
+    av_init_packet(&video_packet);
 
     while (Application::is_running) {
-        if (video_state->flags & VideoFlags::IS_INPUT_CHANGED) {
-            break;
-        }
+        SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
-        SDL_LockMutex(PacketQueue::mutex);
-
-        bool is_packet_avail = s_VideoPacketQueue->dequeue(video_packet) == 0;
+        bool is_packet_avail = s_VideoPacketQueue->dequeue(&video_packet) == 0;
 
         if (!is_packet_avail) {
-            SDL_CondWait(PacketQueue::packet_availability_cond, PacketQueue::mutex);
-            SDL_UnlockMutex(PacketQueue::mutex);
+            SDL_CondWait(PacketQueue::s_PacketAvailabilityCond, PacketQueue::s_GlobalMutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
             continue;
         }
 
         if (video_state->flags & VideoFlags::IS_PAUSED) {
-            SDL_CondWait(PacketQueue::video_paused_cond, PacketQueue::mutex);
+            SDL_CondWait(s_VideoPausedCond, PacketQueue::s_GlobalMutex);
         }
 
         video_state->pts = 0;
 
-        if (decode_video_frame(video_state, video_packet) != 0) {
-            SDL_UnlockMutex(PacketQueue::mutex);
-            av_packet_unref(video_packet);
+        if (decode_video_frame(video_state, &video_packet) != 0) {
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
+            av_packet_unref(&video_packet);
             continue;
         };
 
-        av_packet_unref(video_packet);
+        av_packet_unref(&video_packet);
 
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
 
         update_pts(video_state, s_LatestPacket);
         synchronize_video(video_state);
@@ -610,25 +565,23 @@ int VideoPlayer::enqueue_packets(void* data)
     auto& av_format_ctx = video_state->av_format_ctx;
 
     while (Application::is_running) {
-        if (video_state->flags & VideoFlags::IS_INPUT_CHANGED) {
-            break;
-        }
-
-        SDL_LockMutex(PacketQueue::mutex);
-
-        const int& response = av_read_frame(av_format_ctx, s_LatestPacket);
+        SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         if (video_state->flags & VideoFlags::IS_PAUSED) {
-            SDL_CondWait(PacketQueue::video_paused_cond, PacketQueue::mutex);
-        }
-
-        if (response == AVERROR_EOF) {
-            SDL_CondWait(PacketQueue::input_availability_cond, PacketQueue::mutex);
-            SDL_UnlockMutex(PacketQueue::mutex);
+            SDL_CondWait(s_VideoPausedCond, PacketQueue::s_GlobalMutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
             continue;
         }
 
-        SDL_UnlockMutex(PacketQueue::mutex);
+        const int& response = av_read_frame(av_format_ctx, s_LatestPacket);
+
+        if (response == AVERROR_EOF) {
+            SDL_CondWait(s_FrameAvailabilityCond, PacketQueue::s_GlobalMutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
+            continue;
+        }
+
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
 
         if (response < 0) {
             std::cerr << "Failed to decode the frames: " << av_error_to_string(response) << "\n";
@@ -654,55 +607,50 @@ int VideoPlayer::enqueue_packets(void* data)
 
 int VideoPlayer::seek_frame(float seconds, bool should_update_framebuffer)
 {
-    if (seconds == -1.0f || seconds > (m_duration / AV_TIME_BASE)) {
+    if (seconds == -1.0f || seconds * AV_TIME_BASE > m_duration) {
         return -1;
     }
 
-    SDL_LockMutex(PacketQueue::mutex);
+    SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
     auto& sws_scaler = m_video_state->sws_scaler_ctx;
     auto& av_format_ctx = m_video_state->av_format_ctx;
 
-    // Perform the seeking operation on the audio stream first before the video
-    // stream.
-    static const std::array<std::string, 2> stream_ids = { "Audio", "Video" };
-
-    for (const std::string& key : stream_ids) {
+    for (const std::string& key : { "Audio", "Video" }) {
         const auto& stream_info = s_StreamList.at(key);
 
         if (!is_rational_valid(stream_info->timebase)) {
-            SDL_UnlockMutex(PacketQueue::mutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
             return -1;
         }
 
-        const auto target_second = static_cast<int64_t>(seconds * AV_TIME_BASE);
-
-        const auto target_timestamp =
-            av_rescale_q(target_second, AVRational{ 1, AV_TIME_BASE }, stream_info->timebase);
+        const auto target_timestamp = static_cast<int64_t>(seconds / av_q2d(stream_info->timebase));
 
         int response = av_seek_frame(
             av_format_ctx, stream_info->stream_index, target_timestamp, AVSEEK_FLAG_BACKWARD);
 
         if (response < 0) {
-            SDL_UnlockMutex(PacketQueue::mutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
             return -1;
         }
 
         avcodec_flush_buffers(stream_info->av_codec_ctx);
-    
-        SDL_CondBroadcast(PacketQueue::input_availability_cond);
+    }
+
+    SDL_CondBroadcast(s_FrameAvailabilityCond);
+
+    if (m_video_state->flags & VideoFlags::IS_PAUSED) {
+
+        update_framebuffer(0, m_video_state.get());
     }
 
     s_ClockNetwork->video_internal_clock = seconds;
     s_ClockNetwork->audio_internal_clock = seconds;
 
-    m_audio_state->audio_diff_avg_count = 0;
-    m_audio_state->delta_accum = 0.0;
-
     s_VideoPacketQueue->clear();
     s_AudioPacketQueue->clear();
 
-    SDL_UnlockMutex(PacketQueue::mutex);
+    SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
 
     return 0;
 }
@@ -714,8 +662,8 @@ void VideoPlayer::pause_video()
     m_video_state->flags ^= VideoFlags::IS_PAUSED;
     pause_audio();
 
-    if (PacketQueue::video_paused_cond) {
-        SDL_CondBroadcast(PacketQueue::video_paused_cond);
+    if (s_VideoPausedCond) {
+        SDL_CondBroadcast(s_VideoPausedCond);
     }
 }
 
@@ -727,20 +675,12 @@ void VideoPlayer::free_ffmpeg()
     sws_freeContext(m_video_state->sws_scaler_ctx);
     free_resampler_ctx();
 
-    if (m_video_state->flags & VideoFlags::IS_INPUT_ACTIVE) {
-        avformat_close_input(&m_video_state->av_format_ctx);
-    }
-
+    avformat_close_input(&m_video_state->av_format_ctx);
     avformat_free_context(m_video_state->av_format_ctx);
 
     av_frame_free(&s_LatestFrame);
     av_packet_free(&s_LatestPacket);
     av_packet_free(&m_audio_state->latest_audio_packet);
-
-    if (m_hw_device_ctx) {
-        // Unreference the hardware device context
-        av_buffer_unref(&m_hw_device_ctx);
-    }
 
     for (const auto& pair : s_StreamList) {
         avcodec_free_context(&pair.second->av_codec_ctx);
@@ -749,6 +689,13 @@ void VideoPlayer::free_ffmpeg()
 
 void VideoPlayer::stop_threads()
 {
+    m_video_state->flags &= ~VideoFlags::IS_PAUSED;
+
+    // Signal every conditional variable to stop threads.
+    SDL_CondBroadcast(s_VideoPausedCond);
+    SDL_CondBroadcast(s_FrameAvailabilityCond);
+    SDL_CondBroadcast(PacketQueue::s_PacketAvailabilityCond);
+
     if (m_video_tid) {
         SDL_WaitThread(m_video_tid, nullptr);
         m_video_tid = nullptr;
@@ -759,55 +706,6 @@ void VideoPlayer::stop_threads()
         m_decoding_tid = nullptr;
     }
 }
-
-void VideoPlayer::reset_video_state()
-{
-    if (m_video_state->buffer) {
-        av_freep(&m_video_state->buffer);
-        m_video_state->buffer = nullptr;
-    }
-
-    m_video_state->flags = VideoFlags::IS_INITIALIZED;
-
-    av_frame_free(&s_LatestFrame);
-    av_packet_free(&s_LatestPacket);
-
-    for (const auto& pair : s_StreamList) {
-        if (pair.second->av_codec_ctx) {
-            avcodec_free_context(&pair.second->av_codec_ctx);
-        }
-    }
-
-    if (m_video_state->av_format_ctx) {
-        avformat_close_input(&m_video_state->av_format_ctx);
-        avformat_free_context(m_video_state->av_format_ctx);
-        m_video_state->av_format_ctx = nullptr;
-    }
-
-    s_VideoPacketQueue->clear();
-    s_AudioPacketQueue->clear();
-
-    // Reset the clock network.
-    s_ClockNetwork->video_internal_clock = 0.0;
-    s_ClockNetwork->audio_internal_clock = 0.0;
-    m_video_state->frame_timer = 0.0;
-    m_video_state->is_first_frame = true;
-
-    m_video_state->pts = 0.0;
-    m_video_state->last_delay = 40e-3;
-    m_video_state->last_pts = 0.0;
-
-    reset_audio_buffer_info();
-
-    // Reset the dimensions of the video.
-    m_video_state->dimensions = VideoDimension(640, 360);
-
-    std::cout << "Video state has been reset.\n";
-
-    SDL_DestroyMutex(PacketQueue::mutex);
-    SDL_DestroyCond(PacketQueue::video_paused_cond);
-}
-
 #pragma endregion Deallocation
 
 } // namespace YAVE

@@ -8,6 +8,9 @@
 namespace YAVE
 {
 bool Application::is_running = true;
+unsigned int Application::s_FrameTexID = 0;
+int Application::s_PreferredImageFormat = 0;
+AVRational Application::s_Timebase = AVRational{ 1, 60 };
 
 Application::Application()
     : window(nullptr)
@@ -15,6 +18,7 @@ Application::Application()
     , m_style_config(UIStyleConfig(15.f, 1.0f))
     , m_waveform_loader(std::make_unique<WaveformLoader>())
     , m_current_subtitle_gizmo(std::make_unique<SubtitleGizmo>())
+    , m_video_loading_thread(nullptr)
 {
 }
 
@@ -113,16 +117,21 @@ void Application::init_video_processor()
 
     timeline->video_processor = m_video_processor;
     scene_editor->set_video_player(m_video_processor);
+
+    m_video_processor->s_VideoAvailabilityCond = SDL_CreateCond();
+
+    m_video_loading_thread = SDL_CreateThread(
+        &Application::file_loading_listener, "Video Loading Thread", &m_video_processor);
 }
 
 void Application::init_video_texture()
 {
-    if (m_frame_tex_id != 0) {
+    if (s_FrameTexID != 0) {
         return;
     }
 
-    glGenTextures(1, &m_frame_tex_id);
-    glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
+    glGenTextures(1, &s_FrameTexID);
+    glBindTexture(GL_TEXTURE_2D, s_FrameTexID);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1 << 0);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -131,7 +140,7 @@ void Application::init_video_texture()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     glGetInternalformativ(
-        GL_TEXTURE_2D, GL_RGB, GL_TEXTURE_IMAGE_FORMAT, 1, &m_preferred_image_format);
+        GL_TEXTURE_2D, GL_RGB, GL_TEXTURE_IMAGE_FORMAT, 1, &s_PreferredImageFormat);
 }
 
 std::string Application::configure_sdl()
@@ -143,7 +152,7 @@ std::string Application::configure_sdl()
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
         SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
 #endif
- 
+
     const char* glsl_version = "#version 430 core";
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -225,7 +234,7 @@ void Application::update()
         scene_editor->update();
         debugger->update();
 
-        debugger->time_base = av_q2d(m_time_base);
+        debugger->time_base = av_q2d(s_Timebase);
     }
 
     last_time = time;
@@ -275,13 +284,19 @@ void Application::update_texture()
     static int last_width = m_video_size.width;
     static int last_height = m_video_size.height;
 
+    auto& framebuffer = m_video_processor->get_framebuffer();
+
+    if (!framebuffer) {
+        return;
+    }
+
     auto video_state = m_video_processor->get_videostate();
     m_video_size.width = video_state->dimensions.x;
     m_video_size.height = video_state->dimensions.y;
 
     if (m_video_size.width != last_width || m_video_size.height != last_height) {
-        glTexImage2D(GL_TEXTURE_2D, 0, m_preferred_image_format, m_video_size.width,
-            m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, s_PreferredImageFormat, m_video_size.width,
+            m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, framebuffer);
 
         last_width = m_video_size.width;
         last_height = m_video_size.height;
@@ -290,46 +305,54 @@ void Application::update_texture()
     }
 
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_video_size.width, m_video_size.height, GL_RGBA,
-        GL_UNSIGNED_BYTE, m_video_processor->get_framebuffer());
-
-    last_width = m_video_size.width;
-    last_height = m_video_size.height;
+        GL_UNSIGNED_BYTE, framebuffer);
 }
 
 #pragma endregion Event Callbacks
 
 #pragma region Video Player
 
-void Application::preview_video(const std::string& filename)
+void Application::enqueue_video_request(const std::string& filename, const float timestamp)
+{
+    auto* video_preview_request = new VideoPreviewRequest();
+    video_preview_request->path = filename.c_str();
+    video_preview_request->presentation_timestamp = timestamp;
+    VideoPlayer::s_VideoFileQueue.push_back(video_preview_request);
+    SDL_CondSignal(m_video_processor->s_VideoAvailabilityCond);
+}
+
+[[nodiscard]] const std::int64_t Application::get_file_duration(const std::string& filename) const
+{
+    // Get the duration by allocating a dummy format context.
+    AVFormatContext* dummy_format_context = avformat_alloc_context();
+
+    if (!dummy_format_context) {
+        std::cout << "[Video Preview Request]: Failed to allocate a format context.\n";
+        return -1;
+    }
+
+    if (avformat_open_input(&dummy_format_context, filename.c_str(), nullptr, nullptr) != 0) {
+        std::cout << "[Video Preview Request]: Failed to open the input: " << filename << "\n";
+        return -1;
+    }
+
+    // Copy the duration first before deallocating the format context.
+    const std::int64_t duration = dummy_format_context->duration;
+
+    avformat_close_input(&dummy_format_context);
+    avformat_free_context(dummy_format_context);
+
+    return duration;
+}
+
+void Application::add_segment_to_timeline(const std::string& filename)
 {
     static float cumulative_timestamp = 0.0f;
+    static int video_count = -1;
 
-    if (m_video_processor->open_video(filename.c_str()) != 0) {
-        std::cout << "Failed to open the video.\n";
-        return;
-    };
+    std::int64_t duration = get_file_duration(filename);
 
-    if (m_video_processor->play_video(&m_time_base) != 0) {
-        std::cerr << "Failed to play the video.\n";
-        return;
-    };
-
-    auto video_state = m_video_processor->get_videostate();
-
-    m_video_size.width = video_state->dimensions.x;
-    m_video_size.height = video_state->dimensions.y;
-
-    init_video_texture();
-
-    // Allocate memory for the new video dimensions.
-    glTexImage2D(GL_TEXTURE_2D, 0, m_preferred_image_format, m_video_size.width,
-        m_video_size.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_video_processor->get_framebuffer());
-
-    const std::int64_t duration = m_video_processor->getDuration();
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    if (!AudioPlayer::is_rational_valid(m_time_base)) {
+    if (duration < 0) {
         return;
     }
 
@@ -351,15 +374,38 @@ void Application::preview_video(const std::string& filename)
 
     constexpr unsigned int DEFAULT_TRACK_POSITION = 1;
 
-    const auto new_segment = Segment{ DEFAULT_TRACK_POSITION, current_filename.value(),
-        cumulative_timestamp, end_timestamp, {}, // The waveform data is empty for now.
-        current_video_file.texture_id, current_video_file.resolution };
+    const auto new_segment =
+        Segment{ DEFAULT_TRACK_POSITION, current_filename.value(), cumulative_timestamp,
+            end_timestamp, {}, current_video_file.texture_id, current_video_file.resolution };
 
     m_tools->timeline->add_segment(new_segment);
+
+    // When there are more than one video, the video will be concatenated.
+    if (++video_count > 0) {
+        enqueue_video_request(filename, cumulative_timestamp);
+    } else {
+        open_first_video(filename, m_video_processor);
+    }
+
     cumulative_timestamp += duration_in_seconds;
 
-    // Enqueue this file to the waveform loader.
+    // Enqueue this file to the waveform loader and the video player.
     m_waveform_loader->request_audio_waveform(filename.c_str());
+
+    init_video_texture();
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void Application::open_first_video(
+    const std::string& filename, std::shared_ptr<VideoPlayer> video_player)
+{
+    if (video_player->allocate_video(filename.c_str()) != 0) {
+        return;
+    }
+
+    if (video_player->play_video(&s_Timebase) != 0) {
+        return;
+    }
 }
 
 void Application::handle_zooming(float delta_time)
@@ -435,11 +481,37 @@ void Application::render_subtitles(const ImVec2& min, const ImVec2& max)
     const ImVec2 bg_min = subtitle_display_min - ImVec2(5.0f, 5.0f);
     const ImVec2 bg_max = text_size + ImVec2(5.0f, 5.0f);
 
-    // Add a background to avoid camouflauge.
     draw_list->AddRectFilled(bg_min, bg_min + bg_max, IM_COL32(0, 0, 0, 200), 1.0f);
-
     draw_list->AddText(subtitle_display_min, IM_COL32_WHITE, sample_subtitle_text.c_str());
     ImGui::SetWindowFontScale(1.0f);
+}
+
+int Application::file_loading_listener(void* userdata)
+{
+    auto* video_processor = static_cast<std::shared_ptr<VideoPlayer>*>(userdata);
+
+    while (Application::is_running) {
+        SDL_LockMutex(PacketQueue::s_GlobalMutex);
+
+        if (VideoPlayer::s_VideoFileQueue.empty()) {
+            SDL_CondWait(VideoPlayer::s_VideoAvailabilityCond, PacketQueue::s_GlobalMutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
+            continue;
+        }
+
+        auto* latest_video = VideoPlayer::s_VideoFileQueue.front();
+        auto current_video_state = (*video_processor)->get_videostate();
+
+        // If there are no prior videos, preview the video first and create an output format
+        // context.
+
+
+        VideoPlayer::s_VideoFileQueue.pop_front();
+
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
+    }
+
+    return 0;
 }
 
 void Application::render_video_preview()
@@ -454,7 +526,7 @@ void Application::render_video_preview()
     ImVec2 display_min;
 
     const ImVec2& display_max = maintain_video_aspect_ratio(&display_min);
-    const auto& tex_id_ptr = static_cast<uintptr_t>(m_frame_tex_id);
+    const auto& tex_id_ptr = static_cast<uintptr_t>(s_FrameTexID);
 
     draw_list->AddImage(
         reinterpret_cast<ImTextureID>(tex_id_ptr), display_min, display_min + display_max);
@@ -526,14 +598,14 @@ bool Application::handle_custom_events()
 
     switch (m_event.type) {
     case CustomVideoEvents::FF_REFRESH_VIDEO_EVENT:
-        glBindTexture(GL_TEXTURE_2D, m_frame_tex_id);
+        glBindTexture(GL_TEXTURE_2D, s_FrameTexID);
         update_texture();
         glBindTexture(GL_TEXTURE_2D, 0);
         break;
 
     case CustomVideoEvents::FF_LOAD_NEW_VIDEO_EVENT: {
         const std::string& url = get_requested_url(m_event.user.data1);
-        preview_video(url);
+        add_segment_to_timeline(url);
     } break;
 
     case CustomVideoEvents::FF_LOAD_SRT_FILE_EVENT: {

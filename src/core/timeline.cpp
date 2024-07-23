@@ -33,7 +33,7 @@ void Timeline::update(float delta_time)
     m_track_style.size.y = track_proportion * m_window_size.y;
 
     m_playhead_prop.current_time =
-        static_cast<float>(AudioPlayer::get_video_internal_clock()) * m_segment_style.scale;
+        static_cast<float>(AudioPlayer::get_audio_internal_clock()) * m_segment_style.scale;
 
     m_timestamp = VideoPlayer::get_current_timestamp_str();
 }
@@ -320,12 +320,6 @@ void Timeline::render_waveform(
     const ImVec2& min, const ImVec2& max, const std::vector<float>& audio_data)
 {
     m_draw_list->ChannelsSetCurrent(TimelineLayers::WAVEFORM_LAYER);
-
-    if (video_processor->s_StreamList.find("Audio") == video_processor->s_StreamList.end()) {
-        return;
-    }
-
-    static auto audio_stream = video_processor->s_StreamList.at("Audio");
 
     constexpr static std::array<ImPlotStyleVar_, 4> style_var_set = { ImPlotStyleVar_PlotPadding,
         ImPlotStyleVar_LabelPadding, ImPlotStyleVar_LegendPadding, ImPlotStyleVar_FitPadding };

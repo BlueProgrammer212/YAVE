@@ -107,15 +107,15 @@ int SubtitlePlayer::callback(void* userdata)
 
     // Synchronize the video and the subtitles.
     for (int n = 0; Application::is_running;) {
-        SDL_LockMutex(PacketQueue::mutex);
+        SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         if (s_SubtitleGizmos.empty()) {
-            SDL_CondWait(s_SubtitleAvailabilityCond, PacketQueue::mutex);
-            SDL_UnlockMutex(PacketQueue::mutex);
+            SDL_CondWait(s_SubtitleAvailabilityCond, PacketQueue::s_GlobalMutex);
+            SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
             continue;
         }
 
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
 
         const double master_clock = AudioPlayer::get_video_internal_clock();
         bool is_subtitle_present = false;

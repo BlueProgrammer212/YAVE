@@ -6,9 +6,12 @@ namespace YAVE
 {
 SwrContext* AudioPlayer::s_Resampler_Context = nullptr;
 
-// Create pointers to store the latest frame and packet.
 AVFrame* AudioPlayer::s_LatestFrame = nullptr;
 AVPacket* AudioPlayer::s_LatestPacket = nullptr;
+
+SDL_cond* AudioPlayer::s_FrameAvailabilityCond = nullptr;
+SDL_cond* AudioPlayer::s_VideoPausedCond = nullptr;
+SDL_cond* AudioPlayer::s_VideoAvailabilityCond = nullptr;
 
 StreamMap AudioPlayer::s_StreamList = {};
 
@@ -202,6 +205,34 @@ int AudioPlayer::update_audio_stream(AudioState* userdata, Uint8* sdl_stream, in
     return 0;
 }
 
+std::optional<AVFrame*> AudioPlayer::get_first_audio_frame(
+    AVFormatContext* av_format_context, AVPacket* dummy_packet, AVFrame* dummy_frame)
+{
+    static const auto& stream_info = s_StreamList.at("Audio");
+
+    int ret;
+
+    while (ret = av_read_frame(av_format_context, dummy_packet) >= 0) {
+        // Send the packet to the decoder.
+        int response = avcodec_send_packet(stream_info->av_codec_ctx, dummy_packet);
+        av_packet_unref(dummy_packet);
+
+        if (response == AVERROR(EAGAIN)) {
+            continue;
+        }
+
+        response = avcodec_receive_frame(stream_info->av_codec_ctx, dummy_frame);
+
+        if (response == AVERROR(EAGAIN)) {
+            continue;
+        }
+
+        break;
+    }
+
+    return dummy_frame;
+}
+
 #pragma endregion Frame Processing
 
 #pragma region Sample Correction
@@ -318,18 +349,18 @@ void AudioPlayer::audio_callback(void* t_userdata, Uint8* stream, int len)
 
 int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audio_packet)
 {
-    SDL_LockMutex(PacketQueue::mutex);
+    SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
     const auto& stream_info = s_StreamList.at("Audio");
 
     if (s_AudioPacketQueue->dequeue(audio_packet) != 0) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
 
     if (!audio_packet) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
@@ -337,13 +368,13 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
     int response = avcodec_send_packet(stream_info->av_codec_ctx, audio_packet);
 
     if (response == AVERROR(EAGAIN)) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
 
     if (response < 0 || response == AVERROR_EOF) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
@@ -355,18 +386,18 @@ int AudioPlayer::decode_audio_packet(struct AudioState* userdata, AVPacket* audi
     response = avcodec_receive_frame(stream_info->av_codec_ctx, s_LatestFrame);
 
     if (response == AVERROR(EAGAIN)) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
 
     if (response < 0 || response == AVERROR_EOF) {
-        SDL_UnlockMutex(PacketQueue::mutex);
+        SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         av_packet_unref(audio_packet);
         return -1;
     }
 
-    SDL_UnlockMutex(PacketQueue::mutex);
+    SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
     av_packet_unref(audio_packet);
     return 0;
 }
@@ -408,9 +439,11 @@ void AudioPlayer::resample_audio(AVFrame* frame, struct AudioResamplingState dat
 void AudioPlayer::free_sdl_mixer()
 {
     SDL_CloseAudioDevice(m_device_info->device_id);
-    SDL_DestroyMutex(PacketQueue::mutex);
-    SDL_DestroyCond(PacketQueue::video_paused_cond);
-    SDL_DestroyCond(PacketQueue::packet_availability_cond);
+    SDL_DestroyMutex(PacketQueue::s_GlobalMutex);
+    SDL_DestroyCond(s_VideoPausedCond);
+    SDL_DestroyCond(s_VideoAvailabilityCond);
+    SDL_DestroyCond(s_FrameAvailabilityCond);
+    SDL_DestroyCond(PacketQueue::s_PacketAvailabilityCond);
 }
 #pragma endregion Deallocation
 

@@ -7,10 +7,8 @@ PacketQueue::PacketQueue()
 {
 }
 
-SDL_mutex* PacketQueue::mutex = nullptr;
-SDL_cond* PacketQueue::video_paused_cond = nullptr;
-SDL_cond* PacketQueue::packet_availability_cond = nullptr;
-SDL_cond* PacketQueue::input_availability_cond = nullptr;
+SDL_mutex* PacketQueue::s_GlobalMutex = nullptr;
+SDL_cond* PacketQueue::s_PacketAvailabilityCond = nullptr;
 
 bool PacketQueue::start_audio_dequeue = false;
 
@@ -29,14 +27,14 @@ int PacketQueue::enqueue(const AVPacket* src_packet)
     m_packet_deque.push_back(dest_packet);
     m_nb_packets++;
 
-    SDL_CondBroadcast(packet_availability_cond);
+    SDL_CondBroadcast(s_PacketAvailabilityCond);
 
     return 0;
 }
 
 int PacketQueue::dequeue(AVPacket* dest_packet)
 {
-    if (m_packet_deque.empty() || !dest_packet || !(&m_packet_deque.front())) {
+    if (m_packet_deque.empty() || !dest_packet) {
         return -1;
     }
 

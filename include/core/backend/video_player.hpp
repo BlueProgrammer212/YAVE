@@ -1,7 +1,7 @@
 #pragma once
 
 #include <iomanip>
-#include <optional>
+#include <map>
 #include <sstream>
 
 #define NO_SDL_GLEXT
@@ -17,6 +17,9 @@
 
 namespace YAVE
 {
+struct VideoPreviewRequest;
+using VideoQueue = std::deque<VideoPreviewRequest*>;
+
 enum CustomVideoEvents : std::uint32_t {
     FF_REFRESH_VIDEO_EVENT = SDL_USEREVENT,
     FF_LOAD_NEW_VIDEO_EVENT,
@@ -41,8 +44,6 @@ enum class VideoFlags : std::uint32_t {
   IS_SWS_INITIALIZED         = 1 << 2,
   IS_INPUT_ACTIVE            = 1 << 3,
   IS_DECODING_THREAD_ACTIVE  = 1 << 4,
-  IS_HWACCEL_INITIALIZED     = 1 << 5,
-  IS_INPUT_CHANGED           = 1 << 6
 };
 // clang-format on
 
@@ -106,14 +107,21 @@ struct VideoState {
     std::uint8_t* buffer = nullptr;
 
     double pts = 0.0;
-    double last_pts = 0.0;
-    double last_delay = 40e-3;
+    double previous_pts = 0.0;
+    double previous_delay = 40e-3;
 
     VideoFlags flags = VideoFlags::NONE;
     VideoDimension dimensions;
 
     double frame_timer = 0.0;
     bool is_first_frame = false;
+};
+
+struct VideoPreviewRequest {
+    std::string path = "";
+    float presentation_timestamp = 0.0f;
+    float duration = 0.0f;
+    bool is_active = false;
 };
 
 class VideoPlayer : public AudioPlayer
@@ -127,7 +135,7 @@ public:
      * @param path Specifies the path of the video file.
      * @return 0 <= for success, a negative integer for error.
      */
-    int open_video(const char* path);
+    int allocate_video(const char* path);
 
     /**
      * @brief Plays the active input file.
@@ -151,16 +159,6 @@ public:
      * @return 0 <= for success, a negative integer for error.
      */
     static int video_callback(void* data);
-
-    /**
-     * @brief Recurses until we get a valid video frame.
-     * @param packet
-     * @param frame
-     * @param retry_count The number of trials to get a valid video frame. (0 by default)
-     * @return A pointer to an AVFrame if it's sucessful, and std::nullopt for failure.
-     */
-    [[nodiscard]] std::optional<AVFrame*> get_first_audio_frame(
-        AVPacket* dummy_packet, AVFrame* dummy_frame, int retry_count = 0);
 
     /**
      * @brief Sends the video packets to the decoder and then recieves the frame from the codec.
@@ -214,7 +212,7 @@ public:
      * @brief Get the total duration of the video.
      * @return std::int64_t
      */
-    [[nodiscard]] inline std::int64_t getDuration() const
+    [[nodiscard]] inline std::int64_t get_duration() const
     {
         return m_duration;
     }
@@ -257,12 +255,14 @@ public:
 
     [[nodiscard]] inline std::string get_filename() noexcept
     {
-        return opened_file;
+        return m_opened_file;
     }
 
     [[nodiscard]] static std::string get_current_timestamp_str();
 
     [[nodiscard]] static double calculate_reference_clock();
+
+    [[nodiscard]] int get_nb_samples_per_frame(AVPacket* packet, AVFrame* frame);
 
     [[nodiscard]] static double calculate_actual_delay(
         VideoState* video_state, double& frame_timer);
@@ -284,19 +284,13 @@ public:
      */
     void stop_threads();
 
-    /**
-     * @brief Resets the video state. This is particularly useful to load other
-     *        video files.
-     */
-    void reset_video_state();
-
 #pragma endregion Helper Functions
 
     static std::unique_ptr<PacketQueue> s_VideoPacketQueue;
+    static VideoQueue s_VideoFileQueue;
 
 protected:
     std::shared_ptr<VideoState> m_video_state;
-
     std::int64_t m_duration;
 
     SDL_Thread* m_decoding_tid;
@@ -306,22 +300,17 @@ private:
     std::unique_ptr<VideoLoader> m_loader;
 
     static int init_sws_scaler_ctx(VideoState* video_state);
-
-    int init_hwaccel_decoder(AVCodecContext* ctx, const enum AVHWDeviceType type);
-
-    static AVPixelFormat get_hw_format(AVCodecContext* ctx, const AVPixelFormat* pix_fmts);
-
     static void update_pts(VideoState* video_state, AVPacket* video_packet);
 
     void free_ffmpeg();
     int find_streams();
 
+    int init_mutex();
+
     int create_context_for_stream(StreamInfoPtr& stream_info);
 
-    std::string opened_file{ "" };
+    std::string m_opened_file{ "" };
     bool m_is_input_open{ false };
-
-    AVBufferRef* m_hw_device_ctx;
 };
 #pragma endregion Video Player
 
