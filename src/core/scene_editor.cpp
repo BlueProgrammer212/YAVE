@@ -165,7 +165,7 @@ void SceneEditor::render_subtitles_window()
     }
 
     if (insert_timestamp_button_clicked) {
-        const std::string current_timestamp = VideoPlayer::get_current_timestamp_str();
+        const std::string current_timestamp = VideoPlayer::current_timestamp_str();
         m_subtitle_editor_user_data.subtitle_editor->content += current_timestamp;
         needs_buffer_update = true;
     }

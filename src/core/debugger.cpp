@@ -16,7 +16,7 @@ void Debugger::render()
     ImGui::Begin("Stats for Nerds");
 
     // Clock Network Information
-    const std::string video_pts = "Current Video PTS: " + std::to_string(video_state->pts) + " sec";
+    const std::string video_pts = "Current Video PTS: " + std::to_string(video_state->current_pts) + " sec";
 
     const std::string video_internal_clock =
         "Video Internal Clock: " + std::to_string(AudioPlayer::get_video_internal_clock()) + " sec";

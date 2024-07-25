@@ -15,6 +15,7 @@
 #include "core/backend/audio_player.hpp"
 #include "core/backend/video_player.hpp"
 #include "core/backend/waveform_loader.hpp"
+#include "core/exporter.hpp"
 
 #include <SDL_image.h>
 
@@ -27,6 +28,7 @@ class Timeline;
 class VideoPlayer;
 class ThumbnailLoader;
 class WaveformLoader;
+class Exporter;
 
 struct SubtitleGizmo;
 
@@ -50,6 +52,7 @@ struct Tools {
     std::unique_ptr<Importer> importer{};
     std::unique_ptr<SceneEditor> scene_editor{};
     std::unique_ptr<Debugger> debugger{};
+    std::unique_ptr<Exporter> exporter;
 };
 
 struct VideoResolution {
@@ -100,7 +103,7 @@ public:
     SDL_Window* window;
     SDL_GLContext m_gl_context;
 
-    static bool is_running;
+    static bool s_IsRunning;
 
 private:
     static unsigned int s_FrameTexID;

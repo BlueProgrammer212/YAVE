@@ -10,7 +10,7 @@ int SDL_main(int argc, char* argv[])
         return -1;
     };
 
-    while (app.is_running) {
+    while (app.s_IsRunning) {
         app.handle_events();
         app.update();
         app.render();

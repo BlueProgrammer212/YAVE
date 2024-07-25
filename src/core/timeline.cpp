@@ -35,7 +35,7 @@ void Timeline::update(float delta_time)
     m_playhead_prop.current_time =
         static_cast<float>(AudioPlayer::get_audio_internal_clock()) * m_segment_style.scale;
 
-    m_timestamp = VideoPlayer::get_current_timestamp_str();
+    m_timestamp = VideoPlayer::current_timestamp_str();
 }
 
 #pragma endregion Update Function
@@ -47,6 +47,7 @@ void Timeline::render()
     m_draw_list = ImGui::GetWindowDrawList();
 
     auto& video_flags = video_processor->get_flags();
+    auto video_state = video_processor->video_state();
 
     if (ImGui::Button(~video_flags & VideoFlags::IS_PAUSED ? "Pause" : "Resume")) {
         SDL_Event pause_event;
@@ -72,6 +73,13 @@ void Timeline::render()
 
     ImGui::SliderFloat("##magnify_label", &m_segment_style.scale, 0.9f, 10.0f, "%.3f",
         ImGuiSliderFlags_AlwaysClamp);
+
+    ImGui::SameLine();
+
+    std::string current_video_res_string =
+        "Video Resolution: " + std::to_string(video_state->dimensions.y) + "p";
+
+    ImGui::Text(current_video_res_string.c_str());
 
     m_window_size = ImGui::GetWindowSize();
 
@@ -169,14 +177,12 @@ int Timeline::handle_segment_renaming(std::shared_ptr<Segment> segment, const Im
 {
     constexpr std::size_t SEGMENT_NAME_BUFFER_SIZE = 64;
 
-    static bool is_renaming = false;
-
     if (ImGui::IsMouseHoveringRect(min, min + ImVec2(100, 40)) &&
         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        is_renaming = true;
+        segment->is_renaming = true;
     }
 
-    if (!is_renaming) {
+    if (!segment->is_renaming) {
         return -1;
     }
 
@@ -195,7 +201,7 @@ int Timeline::handle_segment_renaming(std::shared_ptr<Segment> segment, const Im
     ImGui::SetCursorScreenPos(initial_cursor_pos);
 
     if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
-        is_renaming = false;
+        segment->is_renaming = false;
     }
 
     return 0;

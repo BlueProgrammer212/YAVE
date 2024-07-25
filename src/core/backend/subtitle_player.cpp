@@ -106,7 +106,7 @@ int SubtitlePlayer::callback(void* userdata)
     static auto empty_subtitles = std::make_shared<SubtitleGizmo>();
 
     // Synchronize the video and the subtitles.
-    for (int n = 0; Application::is_running;) {
+    for (int n = 0; Application::s_IsRunning;) {
         SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         if (s_SubtitleGizmos.empty()) {

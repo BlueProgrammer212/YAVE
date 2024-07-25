@@ -18,6 +18,8 @@
 namespace YAVE
 {
 struct VideoPreviewRequest;
+class AudioPlayer;
+
 using VideoQueue = std::deque<VideoPreviewRequest*>;
 
 enum CustomVideoEvents : std::uint32_t {
@@ -97,16 +99,12 @@ struct VideoDimension {
     int y = 360;
 };
 
-/**
- * @struct VideoState
- * @brief Contains the SWS scaler context and the AVFormat context.
- */
 struct VideoState {
     SwsContext* sws_scaler_ctx = nullptr;
     AVFormatContext* av_format_ctx = nullptr;
     std::uint8_t* buffer = nullptr;
 
-    double pts = 0.0;
+    double current_pts = 0.0;
     double previous_pts = 0.0;
     double previous_delay = 40e-3;
 
@@ -142,7 +140,7 @@ public:
      * @param timebase
      * @return 0 for success, a negative integer for error.
      */
-    int play_video(AVRational* timebase);
+    int init_threads(AVRational* timebase);
 
     /**
      * @brief Allocates memory for the frame buffer.
@@ -168,16 +166,19 @@ public:
         VideoState* video_state, AVPacket* video_packet, AVFrame* dummy_frame = nullptr);
 
     /**
-     * @brief Synchronize the video with the audio using PTS and DTS.
-     * @param video_state
-     */
-    static void synchronize_video(VideoState* video_state);
-
-    /**
      * @brief Enqueues audio and video packets in a separate thread.
      * @param data The video state
      */
     static int enqueue_packets(void* data);
+
+    /**
+     * @brief Open other input files
+     *
+     * @param av_format_context
+     * @param url
+     * @return int
+     */
+    static int switch_input(AVFormatContext** av_format_context, const std::string& url);
 
     /**
      * @brief Jump to specific timestamp.
@@ -210,9 +211,9 @@ public:
 #pragma region Helper Functions
     /**
      * @brief Get the total duration of the video.
-     * @return std::int64_t
+     * @return std::int64_t&
      */
-    [[nodiscard]] inline std::int64_t get_duration() const
+    [[nodiscard]] inline std::int64_t& get_duration()
     {
         return m_duration;
     }
@@ -232,7 +233,7 @@ public:
      */
     [[nodiscard]] inline double get_pts() const
     {
-        return static_cast<double>(m_video_state->pts);
+        return static_cast<double>(m_video_state->current_pts);
     }
 
     /**
@@ -248,43 +249,40 @@ public:
      * @brief Get the video state object.
      * @return VideoState&
      */
-    [[nodiscard]] inline std::shared_ptr<VideoState> get_videostate() noexcept
+    [[nodiscard]] inline std::shared_ptr<VideoState> video_state() noexcept
     {
         return m_video_state;
     }
 
-    [[nodiscard]] inline std::string get_filename() noexcept
+    [[nodiscard]] inline std::string& filename() noexcept
     {
         return m_opened_file;
     }
 
-    [[nodiscard]] static std::string get_current_timestamp_str();
+    [[nodiscard]] static std::string current_timestamp_str();
 
     [[nodiscard]] static double calculate_reference_clock();
-
-    [[nodiscard]] int get_nb_samples_per_frame(AVPacket* packet, AVFrame* frame);
 
     [[nodiscard]] static double calculate_actual_delay(
         VideoState* video_state, double& frame_timer);
 
     void pause_video();
 
-    /**
-     * @brief Add a stream to the stream list.
-     * @param[in] stream_ptr
-     * @param name
-     */
     static void add_stream(StreamInfoPtr stream_ptr, std::string name);
 
     static int process_stream(
         const AVStream* stream, const AVCodec* av_codec, const StreamID stream_index);
 
-    /**
-     * @brief Waits for the threads to finish.
-     */
-    void stop_threads();
-
 #pragma endregion Helper Functions
+
+public:
+    void stop_threads();
+    void update_video_dimensions();
+
+    [[nodiscard]] int nb_samples_per_frame(AVPacket* packet, AVFrame* frame);
+    int restart_audio_thread();
+
+    int init_codecs();
 
     static std::unique_ptr<PacketQueue> s_VideoPacketQueue;
     static VideoQueue s_VideoFileQueue;
@@ -296,19 +294,28 @@ protected:
     SDL_Thread* m_decoding_tid;
     SDL_Thread* m_video_tid;
 
+    inline static void reset_internal_clocks()
+    {
+        // Reset the audio and video internal clock.
+        s_ClockNetwork->audio_internal_clock = 0.0;
+        s_ClockNetwork->video_internal_clock = 0.0;
+    }
+
 private:
     std::unique_ptr<VideoLoader> m_loader;
 
     static int init_sws_scaler_ctx(VideoState* video_state);
-    static void update_pts(VideoState* video_state, AVPacket* video_packet);
-
-    void free_ffmpeg();
-    int find_streams();
-
+    int create_context_for_stream(StreamInfoPtr& stream_info);
     int init_mutex();
 
-    int create_context_for_stream(StreamInfoPtr& stream_info);
+private:
+    static void update_pts(VideoState* video_state, AVPacket* video_packet);
+    static void synchronize_video(VideoState* video_state);
 
+private:
+    void free_ffmpeg();
+
+private:
     std::string m_opened_file{ "" };
     bool m_is_input_open{ false };
 };

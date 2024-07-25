@@ -14,8 +14,10 @@ bool PacketQueue::start_audio_dequeue = false;
 
 int PacketQueue::enqueue(const AVPacket* src_packet)
 {
+    constexpr int ENQUEUE_DELAY_MS = 100;
+
     if (isFull()) {
-        SDL_Delay(100);
+        SDL_Delay(ENQUEUE_DELAY_MS);
     }
 
     AVPacket dest_packet;

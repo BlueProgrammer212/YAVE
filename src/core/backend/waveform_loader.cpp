@@ -135,14 +135,14 @@ int WaveformLoader::start(void* data)
 {
     auto userdata = static_cast<FileQueue*>(data);
 
-    while (Application::is_running) {
+    while (Application::s_IsRunning) {
         SDL_LockMutex(mutex);
 
         if (userdata->queue.empty()) {
             SDL_CondWait(cond, mutex);
         }
 
-        if (!Application::is_running) {
+        if (!Application::s_IsRunning) {
             break;
         }
 
@@ -151,10 +151,16 @@ int WaveformLoader::start(void* data)
         userdata->queue.pop_back();
 
         static int segment_index = -1;
+        int stream_index = -1;
+
+        if (s_LoadedWaveforms.find(filename) != s_LoadedWaveforms.end()) {
+            std::cout << "[Waveform] Loading waveform from the cache.\n";
+            send_waveform_to_main_thread(s_LoadedWaveforms.at(filename), ++segment_index);
+            return 0;
+        }
 
         auto waveform = new Waveform();
         waveform->state = new WaveformState();
-        int stream_index = -1;
 
         if (open_file(filename, waveform, &stream_index) != 0) {
             continue;
@@ -245,15 +251,15 @@ void WaveformLoader::free_waveform(Waveform* waveform)
     delete waveform;
 }
 
-WaveformLoader::~WaveformLoader() {}
+WaveformLoader::~WaveformLoader()
+{
+    for (auto& waveform : s_LoadedWaveforms) {
+        free_waveform(waveform.second);
+    }
+}
 
 int WaveformLoader::open_file(std::string filename, Waveform* waveform, int* stream_index_ptr)
 {
-    if (s_LoadedWaveforms.find(filename) != s_LoadedWaveforms.end()) {
-        std::cout << "[Waveform] Loading waveform from the cache.\n";
-        return 0;
-    }
-
     auto& [av_format_context, stream_info, av_frame, av_packet] = *waveform->state;
     stream_info = std::make_shared<StreamInfo>();
 

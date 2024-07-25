@@ -7,7 +7,7 @@
 
 namespace YAVE
 {
-bool Application::is_running = true;
+bool Application::s_IsRunning = true;
 unsigned int Application::s_FrameTexID = 0;
 int Application::s_PreferredImageFormat = 0;
 AVRational Application::s_Timebase = AVRational{ 1, 60 };
@@ -102,18 +102,20 @@ void Application::init_video_processor()
     const SampleRate sample_rate = std::make_pair<int, int>(44100, 44100);
     m_video_processor = std::make_shared<VideoPlayer>(sample_rate);
 
-    auto& [timeline, importer, scene_editor, debugger] = *m_tools;
+    auto& [timeline, importer, scene_editor, debugger, exporter] = *m_tools;
 
     timeline = std::make_unique<Timeline>();
     importer = std::make_unique<Importer>();
     scene_editor = std::make_unique<SceneEditor>();
     debugger = std::make_unique<Debugger>();
+    exporter = std::make_unique<Exporter>();
 
-    debugger->video_state = m_video_processor->get_videostate();
+    debugger->video_state = m_video_processor->video_state();
 
     timeline->init();
     importer->init();
     scene_editor->init();
+    exporter->init();
 
     timeline->video_processor = m_video_processor;
     scene_editor->set_video_player(m_video_processor);
@@ -180,11 +182,11 @@ int Application::init()
 
     std::string glsl_version = configure_sdl();
 
-    auto window_flags =
-        static_cast<SDL_WindowFlags>(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
+    auto window_flags = static_cast<SDL_WindowFlags>(
+        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
 
     window = SDL_CreateWindow("YAVE (Yet Another Video Editor)", SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED, 1280, 720, window_flags);
+        SDL_WINDOWPOS_UNDEFINED, 1280, 640, window_flags);
 
     if (!window) {
         std::cerr << "Failed to create a window.\n";
@@ -227,12 +229,13 @@ void Application::update()
     static float delta_time = time - last_time;
 
     {
-        const auto& [timeline, importer, scene_editor, debugger] = *m_tools;
+        const auto& [timeline, importer, scene_editor, debugger, exporter] = *m_tools;
 
         timeline->update(delta_time);
         importer->update();
         scene_editor->update();
         debugger->update();
+        exporter->update();
 
         debugger->time_base = av_q2d(s_Timebase);
     }
@@ -274,8 +277,6 @@ void Application::refresh_timeline_waveform()
     auto* dest_segment_index = static_cast<int*>(m_event.user.data2);
 
     m_tools->timeline->update_segment_waveform(waveform_data->audio_data, *dest_segment_index);
-    m_waveform_loader->free_waveform(waveform_data);
-
     delete dest_segment_index;
 }
 
@@ -290,7 +291,7 @@ void Application::update_texture()
         return;
     }
 
-    auto video_state = m_video_processor->get_videostate();
+    auto video_state = m_video_processor->video_state();
     m_video_size.width = video_state->dimensions.x;
     m_video_size.height = video_state->dimensions.y;
 
@@ -399,11 +400,9 @@ void Application::add_segment_to_timeline(const std::string& filename)
 void Application::open_first_video(
     const std::string& filename, std::shared_ptr<VideoPlayer> video_player)
 {
-    if (video_player->allocate_video(filename.c_str()) != 0) {
-        return;
-    }
-
-    if (video_player->play_video(&s_Timebase) != 0) {
+    if (video_player->allocate_video(filename.c_str()) != 0 ||
+        video_player->init_threads(&s_Timebase) != 0) {
+        std::cout << "[Application]: Failed to allocate a video.\n";
         return;
     }
 }
@@ -488,9 +487,9 @@ void Application::render_subtitles(const ImVec2& min, const ImVec2& max)
 
 int Application::file_loading_listener(void* userdata)
 {
-    auto* video_processor = static_cast<std::shared_ptr<VideoPlayer>*>(userdata);
+    auto& video_processor = *static_cast<std::shared_ptr<VideoPlayer>*>(userdata);
 
-    while (Application::is_running) {
+    while (Application::s_IsRunning) {
         SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         if (VideoPlayer::s_VideoFileQueue.empty()) {
@@ -500,13 +499,24 @@ int Application::file_loading_listener(void* userdata)
         }
 
         auto* latest_video = VideoPlayer::s_VideoFileQueue.front();
-        auto current_video_state = (*video_processor)->get_videostate();
+        auto current_video_state = video_processor->video_state();
 
-        // If there are no prior videos, preview the video first and create an output format
-        // context.
+        VideoPlayer::switch_input(&current_video_state->av_format_ctx, latest_video->path);
 
+        if (video_processor->restart_audio_thread() < 0) {
+            std::cout << "Failed to restart the audio thread.\n";
+        };
+
+        if (video_processor->init_codecs() < 0) {
+            std::cout << "Failed to initialize the codecs.\n";
+        };
+
+        video_processor->get_duration() += current_video_state->av_format_ctx->duration;
+        video_processor->update_video_dimensions();
 
         VideoPlayer::s_VideoFileQueue.pop_front();
+
+        current_video_state->current_pts = 0.0;
 
         SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
     }
@@ -541,7 +551,7 @@ void Application::render_video_preview()
 
 void Application::render()
 {
-    const auto& [timeline, importer, scene_editor, debugger] = *m_tools;
+    const auto& [timeline, importer, scene_editor, debugger, exporter] = *m_tools;
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
@@ -555,6 +565,7 @@ void Application::render()
     importer->render();
     scene_editor->render();
     debugger->render();
+    exporter->render();
 
     render_video_preview();
 
@@ -562,10 +573,6 @@ void Application::render()
     ImGui::Render();
 
     ImGuiIO& io = ImGui::GetIO();
-
-    glViewport(0, 0, (int) io.DisplaySize.x, (int) io.DisplaySize.y);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -668,10 +675,10 @@ void Application::handle_events()
     ImGui_ImplSDL2_ProcessEvent(&m_event);
 
     if (m_event.type == SDL_QUIT) {
-        is_running = false;
+        s_IsRunning = false;
     } else if (m_event.type == SDL_WINDOWEVENT && m_event.window.event == SDL_WINDOWEVENT_CLOSE &&
         m_event.window.windowID == SDL_GetWindowID(window)) {
-        is_running = false;
+        s_IsRunning = false;
     } else if (m_event.type == SDL_KEYUP) {
         // handle_keyup_events();
     }

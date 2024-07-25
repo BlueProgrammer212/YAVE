@@ -49,6 +49,7 @@ struct Segment {
     std::vector<float> waveform_data;
     unsigned int thumbnail_texture_id = 0;
     VideoDimension thumbnail_tex_dimensions;
+    bool is_renaming = false;
 };
 
 struct SegmentStyle {

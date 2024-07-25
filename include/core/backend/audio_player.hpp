@@ -187,10 +187,10 @@ public:
     static int update_audio_stream(AudioState* userdata, Uint8* sdl_stream, int& len);
 
     /**
-     * @brief Recurses until we get a valid audio frame.
+     * @brief Recurses until it gets a valid audio frame.
      * @param packet
      * @param frame
-     * @return A pointer to an AVFrame if it's sucessful, and std::nullopt for failure.
+     * @return A pointer to an AVFrame if it's successful, and std::nullopt if an error occurred.
      */
     [[nodiscard]] std::optional<AVFrame*> get_first_audio_frame(
         AVFormatContext* av_format_context, AVPacket* dummy_packet, AVFrame* dummy_frame);
@@ -237,7 +237,7 @@ public:
         return s_ClockNetwork->video_internal_clock;
     }
 
-    [[nodiscard]] static inline const double& get_audio_internal_clock()
+    [[nodiscard]] static inline double& get_audio_internal_clock()
     {
         return s_ClockNetwork->audio_internal_clock;
     }
@@ -297,7 +297,7 @@ protected:
     std::unique_ptr<AudioDeviceInfo> m_device_info;
     std::shared_ptr<AudioState> m_audio_state;
 
-    inline void reset_audio_buffer_info()
+    inline static void reset_audio_buffer_info()
     {
         // Reset audio buffer information
         s_AudioBufferInfo->buffer_index = 0;

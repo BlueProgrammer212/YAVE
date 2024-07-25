@@ -320,7 +320,7 @@ int Importer::load_thumbnail_callback(void* userdata)
     auto* importer_user_data = static_cast<ImporterUserData*>(userdata);
 
     for (int i = 0; i < importer_user_data->file_paths.size(); ++i) {
-        if (!Application::is_running) {
+        if (!Application::s_IsRunning) {
             break;
         }
 

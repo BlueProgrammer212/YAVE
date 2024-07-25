@@ -213,6 +213,11 @@ std::optional<AVFrame*> AudioPlayer::get_first_audio_frame(
     int ret;
 
     while (ret = av_read_frame(av_format_context, dummy_packet) >= 0) {
+        if (stream_info->stream_index != dummy_packet->stream_index) {
+            av_packet_unref(dummy_packet);
+            continue;
+        }
+
         // Send the packet to the decoder.
         int response = avcodec_send_packet(stream_info->av_codec_ctx, dummy_packet);
         av_packet_unref(dummy_packet);

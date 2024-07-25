@@ -60,14 +60,6 @@ int VideoPlayer::process_stream(
     return 0;
 }
 
-int VideoPlayer::find_streams()
-{
-    auto& av_format_ctx = m_video_state->av_format_ctx;
-    m_loader->find_available_codecs(&m_video_state->av_format_ctx, &VideoPlayer::process_stream);
-
-    return 0;
-}
-
 int VideoPlayer::create_context_for_stream(StreamInfoPtr& stream_info)
 {
     stream_info->av_codec_ctx = avcodec_alloc_context3(stream_info->av_codec);
@@ -177,7 +169,7 @@ int VideoPlayer::init_mutex()
 #pragma endregion Init Functions
 
 #pragma region Helper Functions
-[[nodiscard]] int VideoPlayer::get_nb_samples_per_frame(AVPacket* packet, AVFrame* frame)
+[[nodiscard]] int VideoPlayer::nb_samples_per_frame(AVPacket* packet, AVFrame* frame)
 {
     std::optional<AVFrame*> first_audio_frame =
         get_first_audio_frame(m_video_state->av_format_ctx, packet, frame);
@@ -193,15 +185,28 @@ int VideoPlayer::init_mutex()
 
 #pragma region Video Reader
 
+int VideoPlayer::init_codecs()
+{
+    auto& av_format_ctx = m_video_state->av_format_ctx;
+    m_loader->find_available_codecs(&m_video_state->av_format_ctx, &VideoPlayer::process_stream);
+
+    for (auto& stream : s_StreamList) {
+        if (create_context_for_stream(stream.second) != 0) {
+            std::cerr << "Initialization failed for one or more streams.\n";
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 int VideoPlayer::allocate_video(const char* filename)
 {
     SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
-    auto& flags = m_video_state->flags;
     auto& av_format_ctx = m_video_state->av_format_ctx;
 
-
-    if (flags & VideoFlags::IS_INITIALIZED) {
+    if (m_video_state->flags & VideoFlags::IS_INITIALIZED) {
         SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
         return 0;
     }
@@ -229,14 +234,10 @@ int VideoPlayer::allocate_video(const char* filename)
     m_duration = av_format_ctx->duration;
     m_video_state->flags |= VideoFlags::IS_INPUT_ACTIVE;
 
-    find_streams();
-
-    for (auto& stream : s_StreamList) {
-        if (create_context_for_stream(stream.second) != 0) {
-            std::cerr << "Initialization failed for one or more streams.\n";
-            return -1;
-        }
-    }
+    if (init_codecs() < 0) {
+        std::cout << "[Video Player]: Failed to find a valid codec.\n";
+        return -1;
+    };
 
     if (!s_LatestFrame || !s_LatestPacket) {
         s_LatestFrame = av_frame_alloc();
@@ -249,7 +250,7 @@ int VideoPlayer::allocate_video(const char* filename)
     return 0;
 }
 
-int VideoPlayer::play_video(AVRational* timebase)
+void VideoPlayer::update_video_dimensions()
 {
     auto& dimensions = m_video_state->dimensions;
 
@@ -258,6 +259,13 @@ int VideoPlayer::play_video(AVRational* timebase)
 
     dimensions.x = video_stream_info->width;
     dimensions.y = video_stream_info->height;
+}
+
+int VideoPlayer::init_threads(AVRational* timebase)
+{
+    const auto& video_stream_info = s_StreamList.at("Video");
+
+    update_video_dimensions();
 
     int ret = this->allocate_frame_buffer(
         video_stream_info->av_codec_ctx->pix_fmt, m_video_state->dimensions);
@@ -272,28 +280,9 @@ int VideoPlayer::play_video(AVRational* timebase)
 
     m_video_state->is_first_frame = true;
 
-    AVPacket* packet_for_first_frame = av_packet_alloc();
-    AVFrame* first_frame = av_frame_alloc();
-
-    if (init_mutex() < 0) {
+    if (init_mutex() < 0 || restart_audio_thread() < 0) {
         return -1;
     };
-
-    const int nb_samples_per_frame = get_nb_samples_per_frame(packet_for_first_frame, first_frame);
-    const int AV_STEREO_CHANNEL_NB = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
-
-    // Ensure that the audio thread is finished before opening a new audio device to update the
-    // desired audio specs.
-    if (m_video_state->flags & VideoFlags::IS_DECODING_THREAD_ACTIVE) {
-        SDL_CloseAudioDevice(m_device_info->device_id);
-    }
-
-    if (init_sdl_mixer(AV_STEREO_CHANNEL_NB, nb_samples_per_frame) != 0) {
-        return -1;
-    };
-
-    av_packet_free(&packet_for_first_frame);
-    av_frame_free(&first_frame);
 
     SDL_CondBroadcast(s_FrameAvailabilityCond);
 
@@ -386,19 +375,19 @@ double VideoPlayer::calculate_reference_clock()
 
 double VideoPlayer::calculate_actual_delay(VideoState* video_state, double& frame_timer)
 {
-    double delay = video_state->pts - video_state->previous_pts;
+    double delay = video_state->current_pts - video_state->previous_pts;
 
     if (delay <= 0 || delay >= 1.0) {
         delay = video_state->previous_delay;
     }
 
     video_state->previous_delay = delay;
-    video_state->previous_pts = video_state->pts;
+    video_state->previous_pts = video_state->current_pts;
 
     const double current_time = av_gettime() / static_cast<double>(AV_TIME_BASE);
 
     const double ref_clock = calculate_reference_clock();
-    const double diff = video_state->pts - ref_clock;
+    const double diff = video_state->current_pts - ref_clock;
 
     const double sync_threshold = std::max(delay, SYNC_THRESHOLD);
 
@@ -439,10 +428,10 @@ void VideoPlayer::synchronize_video(VideoState* video_state)
 
     frame_delay += s_LatestFrame->repeat_pict * (frame_delay * 0.5);
 
-    if (video_state->pts != 0) {
-        video_clock = video_state->pts;
+    if (video_state->current_pts != 0) {
+        video_clock = video_state->current_pts;
     } else {
-        video_state->pts = video_clock;
+        video_state->current_pts = video_clock;
     }
 
     s_ClockNetwork->video_internal_clock += frame_delay;
@@ -457,14 +446,14 @@ void VideoPlayer::update_pts(VideoState* state, AVPacket* packet)
     bool is_dts_available = packet->dts != AV_NOPTS_VALUE;
 
     // Get the PTS of the current video frame.
-    state->pts = (is_dts_available ? static_cast<double>(s_LatestFrame->pts) : 0);
+    state->current_pts = (is_dts_available ? static_cast<double>(s_LatestFrame->pts) : 0);
 
     if (is_rational_valid(time_base)) {
-        state->pts *= av_q2d(time_base);
+        state->current_pts *= av_q2d(time_base);
     }
 }
 
-[[nodiscard]] std::string VideoPlayer::get_current_timestamp_str()
+[[nodiscard]] std::string VideoPlayer::current_timestamp_str()
 {
     const double master_clock = AudioPlayer::get_video_internal_clock();
     const int total_seconds = static_cast<int>(std::floor(master_clock));
@@ -491,7 +480,7 @@ int VideoPlayer::video_callback(void* data)
     AVPacket video_packet;
     av_init_packet(&video_packet);
 
-    while (Application::is_running) {
+    while (Application::s_IsRunning) {
         SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         bool is_packet_avail = s_VideoPacketQueue->dequeue(&video_packet) == 0;
@@ -506,7 +495,7 @@ int VideoPlayer::video_callback(void* data)
             SDL_CondWait(s_VideoPausedCond, PacketQueue::s_GlobalMutex);
         }
 
-        video_state->pts = 0;
+        video_state->current_pts = 0;
 
         if (decode_video_frame(video_state, &video_packet) != 0) {
             SDL_UnlockMutex(PacketQueue::s_GlobalMutex);
@@ -564,7 +553,7 @@ int VideoPlayer::enqueue_packets(void* data)
     auto& sws_scaler_ctx = video_state->sws_scaler_ctx;
     auto& av_format_ctx = video_state->av_format_ctx;
 
-    while (Application::is_running) {
+    while (Application::s_IsRunning) {
         SDL_LockMutex(PacketQueue::s_GlobalMutex);
 
         if (video_state->flags & VideoFlags::IS_PAUSED) {
@@ -637,12 +626,40 @@ int VideoPlayer::seek_frame(float seconds, bool should_update_framebuffer)
         avcodec_flush_buffers(stream_info->av_codec_ctx);
     }
 
-    SDL_CondBroadcast(s_FrameAvailabilityCond);
-
     if (m_video_state->flags & VideoFlags::IS_PAUSED) {
+        const auto& stream_info = s_StreamList.at("Video");
 
-        update_framebuffer(0, m_video_state.get());
+        while (av_read_frame(m_video_state->av_format_ctx, s_LatestPacket) >= 0) {
+            if (s_LatestPacket->stream_index != stream_info->stream_index) {
+                av_packet_unref(s_LatestPacket);
+                continue;
+            }
+
+            int response = avcodec_send_packet(stream_info->av_codec_ctx, s_LatestPacket);
+
+            if (response == AVERROR_EOF) {
+                av_packet_unref(s_LatestPacket);
+                break;
+            }
+
+            if (response == AVERROR(EAGAIN) || response < 0) {
+                av_packet_unref(s_LatestPacket);
+                continue;
+            }
+
+            response = avcodec_receive_frame(stream_info->av_codec_ctx, s_LatestFrame);
+
+            if (response == AVERROR(EAGAIN) || response < 0) {
+                av_packet_unref(s_LatestPacket);
+                continue;
+            }
+
+            VideoPlayer::update_framebuffer(0, m_video_state.get());
+            break;
+        }
     }
+
+    SDL_CondBroadcast(s_FrameAvailabilityCond);
 
     s_ClockNetwork->video_internal_clock = seconds;
     s_ClockNetwork->audio_internal_clock = seconds;
@@ -656,6 +673,50 @@ int VideoPlayer::seek_frame(float seconds, bool should_update_framebuffer)
 }
 
 #pragma endregion Seek Operation
+
+#pragma region Switch Input
+int VideoPlayer::restart_audio_thread()
+{
+    AVPacket* packet_for_first_frame = av_packet_alloc();
+    AVFrame* first_frame = av_frame_alloc();
+
+    const int samples_per_frame = nb_samples_per_frame(packet_for_first_frame, first_frame);
+    const int AV_STEREO_CHANNEL_NB = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
+
+    if (m_video_state->flags & VideoFlags::IS_DECODING_THREAD_ACTIVE) {
+        SDL_CloseAudioDevice(m_device_info->device_id);
+    }
+
+    av_packet_free(&packet_for_first_frame);
+    av_frame_free(&first_frame);
+
+    if (init_sdl_mixer(AV_STEREO_CHANNEL_NB, samples_per_frame) != 0) {
+        return -1;
+    };
+
+    return 0;
+}
+
+int VideoPlayer::switch_input(AVFormatContext** av_format_context, const std::string& url)
+{
+    avformat_close_input(av_format_context);
+
+    if (avformat_open_input(av_format_context, url.c_str(), nullptr, nullptr) != 0) {
+        std::cout << "[Video Preview]: Failed to switch the input.\n";
+        return -1;
+    }
+
+    reset_internal_clocks();
+    reset_audio_buffer_info();
+
+    (s_VideoPacketQueue, s_AudioPacketQueue)->clear();
+
+    // Signal the packet enqueuer thread that a frame might be available.
+    SDL_CondBroadcast(s_FrameAvailabilityCond);
+
+    return 0;
+}
+#pragma endregion Switch Input
 
 void VideoPlayer::pause_video()
 {
